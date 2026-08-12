@@ -192,8 +192,8 @@ class TensorRTNumpyTTSEngine:
             )
 
     def _get_text_ids(self, text, *, normalized=False):
-        from ..frontend import cleaned_text_to_sequence_mix
-        from ..frontend.cleaner import clean_text_mix, g2p_normalized_text_mix
+        from ...frontend import cleaned_text_to_sequence_mix
+        from ...frontend.cleaner import clean_text_mix, g2p_normalized_text_mix
 
         if normalized:
             phones, tones, langs, _ = g2p_normalized_text_mix(text)

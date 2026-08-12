@@ -99,8 +99,8 @@ class OnnxCpuEngine:
                 raise RuntimeError(f"ONNX size mismatch: {path}")
             if _sha256(path) != entry["sha256"]:
                 raise RuntimeError(f"ONNX checksum mismatch: {path}")
-        if total > 50 * 1024 * 1024:
-            raise RuntimeError(f"ONNX bundle exceeds 50 MiB: {total} bytes")
+        if total > 128 * 1024 * 1024:
+            raise RuntimeError(f"ONNX bundle exceeds 128 MiB: {total} bytes")
 
     def _load(self, name):
         options = ort.SessionOptions()
@@ -120,8 +120,8 @@ class OnnxCpuEngine:
         return dict(zip(names, session.run(names, inputs)))
 
     def _text_ids(self, text):
-        from .frontend import cleaned_text_to_sequence_mix
-        from .frontend.cleaner import clean_text_mix
+        from ...frontend import cleaned_text_to_sequence_mix
+        from ...frontend.cleaner import clean_text_mix
 
         _, phones, tones, langs, _ = clean_text_mix(text)
         ids = cleaned_text_to_sequence_mix(phones, tones, langs)

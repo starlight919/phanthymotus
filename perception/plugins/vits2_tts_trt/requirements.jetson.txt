@@ -1,9 +1,8 @@
-numpy==1.26.1
-websockets==16.1
-pynini==2.1.6
+numpy==1.24.4
+onnxruntime==1.16.3
 WeTextProcessing==1.0.4.1
 pypinyin==0.55.0
 jieba==0.42.1
 g2p-en==2.1.0
-inflect==7.5.0
-nltk==3.10.0
+inflect==7.4.0
+nltk==3.9.1

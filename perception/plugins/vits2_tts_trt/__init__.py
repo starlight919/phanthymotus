@@ -1,4 +1,4 @@
-"""VITS2 TensorRT TTS plugin selected with TTS_PLUGIN=vits2_tts_trt.
+"""Optional VITS2 TTS plugin with TensorRT and ONNX backends.
 
 Keep ROS imports lazy so the frontend/adapter can be reused by offline
 evaluation without requiring ``audio_msgs`` or ``rclpy``.

@@ -15,7 +15,14 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
-from .adapter import CHUNK_BYTES, PCM_FRAME_MS, SAMPLE_RATE, TTSAdapter, build_adapter
+from .adapter import (
+    CHUNK_BYTES,
+    PCM_FRAME_MS,
+    SAMPLE_RATE,
+    TTSAdapter,
+    Vits2TensorRTAdapter,
+    build_adapter,
+)
 
 
 log = logging.getLogger(__name__)
@@ -80,10 +87,6 @@ TOOLS = [
         "topic_out": [{"format": "audio/pcm-16k", "desc": "synthesized PCM audio"}],
     }
 ]
-# Preserve the existing tool name and expose the TensorRT-specific alias.
-TOOLS.append({**TOOLS[0], "name": "tts_trt"})
-
-
 class _Vits2TTSNode(Node):
     def __init__(
         self,
@@ -311,7 +314,7 @@ class _Vits2TTSNode(Node):
 
 
 class TTSPlugin:
-    """VITS2 TensorRT implementation exposed as the shared `tts` MCP tool."""
+    """VITS2 TensorRT implementation exposed as an optional MCP tool."""
 
     PREFIX = "vits2"
 
@@ -319,22 +322,48 @@ class TTSPlugin:
         self._cfg = dict(plugin_cfg)
         self._executor = executor
         self._nodes = {}
+        self._adapter = None
+        self._model_name = "vits2"
         self._load_error = None
-        try:
-            self._adapter = build_adapter(self._cfg)
-            if self._cfg.get("vits2_warmup", True):
-                started = time.monotonic()
-                warmup_bytes = self._adapter.warmup()
-                log.info(
-                    "[vits2_tts_trt] engine ready: bytes=%d elapsed=%.3fs",
-                    warmup_bytes,
-                    time.monotonic() - started,
+        self._load_lock = threading.Lock()
+        backend = str(self._cfg.get("backend", "auto")).lower()
+        if backend not in {"auto", "trt", "onnx"}:
+            raise ValueError("backend must be one of: auto, trt, onnx")
+        if int(self._cfg.get("speaker_id", 0)) != 0:
+            raise ValueError("The VITS2 model supports only speaker_id=0")
+
+    def _ensure_adapter(self):
+        if self._adapter is not None:
+            return self._adapter
+        with self._load_lock:
+            if self._adapter is not None:
+                return self._adapter
+            model_dir = self._cfg.get("vits2_model_dir", "/models/vits2-mix")
+            try:
+                from utils.model_downloader import ensure_model
+
+                ensure_model("vits2", model_dir)
+                adapter = build_adapter(self._cfg)
+                if self._cfg.get("vits2_warmup", True):
+                    started = time.monotonic()
+                    warmup_bytes = adapter.warmup()
+                    log.info(
+                        "[vits2_tts_trt] engine ready: bytes=%d elapsed=%.3fs",
+                        warmup_bytes,
+                        time.monotonic() - started,
+                    )
+                self._adapter = adapter
+                self._model_name = (
+                    "vits2-tensorrt-jp6"
+                    if isinstance(adapter, Vits2TensorRTAdapter)
+                    else "vits2-onnx-cpu"
                 )
-        except Exception as exc:
-            log.exception("[vits2_tts_trt] failed to load engine")
-            self._adapter = None
-            self._load_error = str(exc)
-            raise RuntimeError("VITS2 model load or warmup failed") from exc
+                self._load_error = None
+            except Exception as exc:
+                self._load_error = str(exc)
+                log.exception("[vits2_tts_trt] failed to load engine")
+                raise RuntimeError("VITS2 model load or warmup failed") from exc
+            return self._adapter
 
     def get_tools(self):
         return TOOLS
@@ -343,6 +372,7 @@ class TTSPlugin:
         node = self._nodes.pop(key)
         node.stop()
         self._executor.remove_node(node)
+        node.destroy_node()
 
     def _create_node(self, key, input_topic):
         suffix = key.replace("/", "_").replace("-", "_")
@@ -352,7 +382,7 @@ class TTSPlugin:
         return node
 
     def dispatch(self, name: str, args: dict):
-        action = args.get("action") if name in {"tts", "tts_trt"} else name
+        action = args.get("action") if name == "tts" else name
         instance_id = args.get("instance_id", "")
 
         if action == "info":
@@ -360,7 +390,7 @@ class TTSPlugin:
                 return {
                     "name": "VITS2 TTS",
                     "manufacture": "Embodied",
-                    "model": "vits2-tensorrt-jp6",
+                    "model": self._model_name,
                     "state": "error",
                     "desc": self._load_error,
                 }
@@ -368,7 +398,7 @@ class TTSPlugin:
                 return {
                     "name": "VITS2 TTS",
                     "manufacture": "Embodied",
-                    "model": "vits2-tensorrt-jp6",
+                    "model": self._model_name,
                     **self._nodes[instance_id].status(),
                     "desc": "VITS2 TensorRT text-to-speech",
                 }
@@ -380,7 +410,7 @@ class TTSPlugin:
                 return {
                     "name": "VITS2 TTS",
                     "manufacture": "Embodied",
-                    "model": "vits2-tensorrt-jp6",
+                    "model": self._model_name,
                     "state": "idle",
                     "topic_in": (
                         [{"topic": input_topic, "format": "data/json", "desc": ""}]
@@ -420,7 +450,7 @@ class TTSPlugin:
             return {
                 "name": "VITS2 TTS",
                 "manufacture": "Embodied",
-                "model": "vits2-tensorrt-jp6",
+                "model": self._model_name,
                 "state": state,
                 "topic_in": topics_in,
                 "topic_out": topics_out,
@@ -428,8 +458,10 @@ class TTSPlugin:
             }
 
         if action == "start":
-            if self._load_error or not self._adapter:
-                return {"state": "error", "message": self._load_error or "model unavailable"}
+            try:
+                self._ensure_adapter()
+            except RuntimeError:
+                return {"state": "error", "message": self._load_error}
             input_topic = args.get("input_topic") or ""
             key = instance_id or input_topic or "_default"
             if key in self._nodes and input_topic != self._nodes[key]._input_topic:
@@ -439,17 +471,17 @@ class TTSPlugin:
 
         if action == "stop":
             if instance_id and instance_id in self._nodes:
-                # Keep the publisher alive so a subsequent start for the same
-                # instance reuses its DDS discovery state.
-                self._nodes[instance_id].stop()
+                self._remove_node(instance_id)
             elif not instance_id:
-                for node in self._nodes.values():
-                    node.stop()
+                for key in list(self._nodes):
+                    self._remove_node(key)
             return {"state": "idle"}
 
         if action == "speak":
-            if self._load_error or not self._adapter:
-                return {"state": "error", "message": self._load_error or "model unavailable"}
+            try:
+                self._ensure_adapter()
+            except RuntimeError:
+                return {"state": "error", "message": self._load_error}
             text = args.get("text", "").strip()
             if not text:
                 raise ValueError("text is required")
@@ -470,7 +502,8 @@ class TTSPlugin:
                 self._cfg["speed"] = float(args["speed"])
             if int(self._cfg.get("speaker_id", 0)) != 0:
                 raise ValueError("The VITS2 model supports only speaker_id=0")
-            self._adapter.set_speed(float(self._cfg.get("speed", 1.0)))
+            if self._adapter is not None:
+                self._adapter.set_speed(float(self._cfg.get("speed", 1.0)))
             for key in list(self._nodes):
                 self._remove_node(key)
             self._load_error = None
@@ -479,6 +512,4 @@ class TTSPlugin:
         return None
 
     def synthesize_raw(self, text: str) -> bytes:
-        if not self._adapter:
-            raise RuntimeError(self._load_error or "TTS adapter not configured")
-        return self._adapter.synthesize(text)
+        return self._ensure_adapter().synthesize(text)

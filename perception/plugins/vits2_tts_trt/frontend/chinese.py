@@ -3,6 +3,7 @@ import re
 import runpy
 
 import jieba
+import numpy as np
 from pypinyin import lazy_pinyin, Style, load_phrases_dict
 
 from .symbols import punctuation
@@ -32,17 +33,22 @@ default_tn_cache_dir = os.path.join(project_root, "tn_cache")
 _TN_CACHE_DIR = os.getenv("TN_CACHE_DIR", default_tn_cache_dir)
 _normalizer = ZhNormalizer(cache_dir=_TN_CACHE_DIR)
 
-pinyin_to_symbol_map = {
-    line.split("\t")[0]: line.strip().split("\t")[1]
-    for line in open(os.path.join(current_file_path, "opencpop-strict.txt")).readlines()
-}
+with open(
+    os.path.join(current_file_path, "opencpop-strict.txt"), encoding="utf-8"
+) as symbol_file:
+    pinyin_to_symbol_map = {
+        line.split("\t")[0]: line.strip().split("\t")[1]
+        for line in symbol_file
+    }
 
 import jieba.posseg as psg
 
 
 rep_map = {
     "：": ",",
+    ":": ",",
     "；": ",",
+    ";": ",",
     "，": ",",
     "。": ".",
     "！": "!",
@@ -165,9 +171,19 @@ def _g2p(segments):
         finals = sum(finals, [])
         for c, v in zip(initials, finals):
             raw_pinyin = c + v
+            # pypinyin can emit an empty initial/final for a stripped MIX
+            # fragment (e.g. an English brand normalized inside Chinese).
+            # It carries no acoustic token; ignore it instead of indexing an
+            # empty tone string or crashing the complete filelist conversion.
+            if not c and not v:
+                # Keep one alignment token for this source character.  A
+                # silent punctuation token is safer than dropping a token
+                # (which would invalidate word2ph and the training cache).
+                c, v = ".", "."
             # Distinguish the three pypinyin representations of "i".
             if c == v:
-                assert c in punctuation
+                if c not in punctuation:
+                    c = "."
                 phone = [c]
                 tone = "0"
                 word2ph.append(1)
@@ -229,15 +245,11 @@ def text_normalize(text):
     return text
 
 
-
-
 def mix_normalize(text: str) -> str:
     """Normalise text for ZH/EN mixed input.
 
-    Pipeline: WeText → _post_replace → english.replace_punctuation
-
-    WeText handles camelCase (ChatGPT→chat GPT, MacBook→Mac book) and
-    acronyms (GPT→G P T, CEO→C E O) natively, so no preprocessing is needed.
+    Keep the complete mixed-language context so WeText can expand acronyms
+    such as ``AI`` and ``CTO`` into letter-by-letter forms before G2P.
     """
     from .english import replace_punctuation as en_replace_punct
     text = _remove_redundant_newlines_after_punctuation(text)
@@ -249,5 +261,4 @@ def mix_normalize(text: str) -> str:
 
 def get_bert_feature(text, word2ph):
     """Return the zero BERT feature tensor expected by this model."""
-    import torch
-    return torch.zeros(1024, sum(word2ph))
+    return np.zeros((1024, sum(word2ph)), dtype=np.float32)

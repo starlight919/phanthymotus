@@ -104,7 +104,7 @@ class PerceptionBundle:
 
         requested_tts_plugin = os.environ.get("TTS_PLUGIN", "").strip()
         default_tts_plugin = os.environ.get(
-            "DEFAULT_TTS_PLUGIN", "vits2_tts"
+            "DEFAULT_TTS_PLUGIN", "vits2_tts_trt"
         ).strip()
         if not default_tts_plugin.isidentifier():
             raise RuntimeError(
@@ -509,8 +509,13 @@ def main():
 
     threading.Thread(target=_spin, daemon=True, name="perception_spin").start()
 
-    # Start WebSocket ASR server in a separate thread
-    threading.Thread(target=_start_ws_thread, args=(ws_port,), daemon=True, name="ws_asr").start()
+    if asr_cfg.get("enabled", False):
+        threading.Thread(
+            target=_start_ws_thread,
+            args=(ws_port,),
+            daemon=True,
+            name="ws_asr",
+        ).start()
 
     _start_registration(mcp_port, "Perception Stack", "perception")
 
