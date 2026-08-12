@@ -87,6 +87,11 @@ TOOLS = [
         "topic_out": [{"format": "audio/pcm-16k", "desc": "synthesized PCM audio"}],
     }
 ]
+# The leaderboard evaluator selects this legacy tool name explicitly.  Both
+# names dispatch to the same plugin instance and inference implementation.
+TOOLS.append({**TOOLS[0], "name": "tts_trt"})
+
+
 class _Vits2TTSNode(Node):
     def __init__(
         self,
@@ -382,7 +387,7 @@ class TTSPlugin:
         return node
 
     def dispatch(self, name: str, args: dict):
-        action = args.get("action") if name == "tts" else name
+        action = args.get("action") if name in {"tts", "tts_trt"} else name
         instance_id = args.get("instance_id", "")
 
         if action == "info":
