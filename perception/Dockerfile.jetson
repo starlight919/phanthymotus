@@ -6,10 +6,10 @@ ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
 
 FROM ${BASE_IMAGE}
 ARG PYPI_MIRROR
-ARG VITS2_DEPS_URL=""
-ARG VITS2_DEPS_SHA256=""
-ARG VITS2_MODEL_URL=""
-ARG VITS2_MODEL_SHA256=""
+ARG VITS2_DEPS_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/vits2-jp61-runtime-deps.tar.gz
+ARG VITS2_DEPS_SHA256=08627af1112cda2569fbb5665f0346472db061fb56964fe02ea1c64b31802ccc
+ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v3_80k_runtime.tar.gz
+ARG VITS2_MODEL_SHA256=704cec333f0f3af1495c7edc1f446af627d7a55e9c3b23288960f52baace244a
 ARG VITS_MODEL_RELEASE=lc1_male_v3_80k
 
 USER root
