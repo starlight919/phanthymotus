@@ -29,7 +29,7 @@ RUN test -n "${VITS2_DEPS_URL}" && test -n "${VITS2_DEPS_SHA256}" && \
 
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
       pyyaml requests websockets websocket-client colcon-common-extensions "empy<4" && \
-    python3 -c "import ctypes,onnxruntime,pynini,tn,tensorrt; ctypes.CDLL('libfstfar.so'); assert 'CPUExecutionProvider' in onnxruntime.get_available_providers()" && \
+    python3 -c "import ctypes,importlib.util,onnxruntime,pynini,tn; ctypes.CDLL('libfstfar.so'); assert 'CPUExecutionProvider' in onnxruntime.get_available_providers(); assert importlib.util.find_spec('tensorrt') is not None" && \
     test "$(uname -m)" = aarch64 && test -f /opt/ros/humble/install/setup.bash
 
 COPY deploy/ros-base/audio_msgs/ /ros_ws/src/audio_msgs/
