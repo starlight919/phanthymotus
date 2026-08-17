@@ -84,6 +84,8 @@ tone_modifier = ToneSandhi()
 
 
 def _post_replace(text: str) -> str:
+    # WeText owns semantic minus, range and identifier classification.  Any
+    # remaining dash handled below is punctuation only.
     text = text.replace("/", "每")
     text = text.replace("①", "一，").replace("②", "二，").replace("③", "三，")
     text = text.replace("④", "四，").replace("⑤", "五，").replace("⑥", "六，")

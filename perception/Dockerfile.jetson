@@ -8,9 +8,9 @@ FROM ${BASE_IMAGE}
 ARG PYPI_MIRROR
 ARG VITS2_DEPS_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/vits2-jp61-runtime-deps.tar.gz
 ARG VITS2_DEPS_SHA256=08627af1112cda2569fbb5665f0346472db061fb56964fe02ea1c64b31802ccc
-ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v3_80k_runtime.tar.gz
-ARG VITS2_MODEL_SHA256=704cec333f0f3af1495c7edc1f446af627d7a55e9c3b23288960f52baace244a
-ARG VITS_MODEL_RELEASE=lc1_male_v3_80k
+ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v4_nf_200k_runtime.tar.gz
+ARG VITS2_MODEL_SHA256=8812d6f47fb375ce2ad51d2cf9fc5a2ca9b165a4fb13f3a3f7f909587f382b15
+ARG VITS_MODEL_RELEASE=lc1_male_v4_nf_200k
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -4,9 +4,10 @@ utils/model_downloader.py — Auto-download sherpa-onnx models from COS if missi
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
-import hashlib
 import tarfile
 import tempfile
 import zipfile
@@ -15,6 +16,54 @@ from urllib.request import urlretrieve
 log = logging.getLogger(__name__)
 
 COS_BASE = "https://agi-phanthy-dev-1252788780.cos.ap-beijing.myqcloud.com/public"
+
+
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _verify_vits2_tn(model_dir: str) -> None:
+    """Verify the compiled TN assets shipped with a VITS2 release."""
+    tn_dir = os.path.join(model_dir, "tn_cache")
+    sums_path = os.path.join(tn_dir, "SHA256SUMS")
+    required = ("zh_tn_tagger.fst", "zh_tn_verbalizer.fst")
+    if not os.path.isfile(sums_path):
+        raise RuntimeError(f"VITS2 TN checksum file is missing: {sums_path}")
+
+    expected = {}
+    with open(sums_path, encoding="utf-8") as stream:
+        for line in stream:
+            fields = line.strip().split()
+            if len(fields) == 2:
+                expected[fields[1].lstrip("*")] = fields[0].lower()
+    for name in required:
+        path = os.path.join(tn_dir, name)
+        if name not in expected or not os.path.isfile(path):
+            raise RuntimeError(f"VITS2 TN asset is incomplete: {name}")
+        actual = _sha256(path)
+        if actual != expected[name]:
+            raise RuntimeError(
+                f"VITS2 TN SHA256 mismatch for {name}: "
+                f"expected {expected[name]}, got {actual}"
+            )
+
+    # New releases carry source/build provenance.  Keep old, checksum-valid
+    # releases loadable while validating the stronger contract when present.
+    manifest_path = os.path.join(tn_dir, "tn_manifest.json")
+    if os.path.isfile(manifest_path):
+        with open(manifest_path, encoding="utf-8") as stream:
+            manifest = json.load(stream)
+        manifest_fst = manifest.get("fst", {})
+        for name in required:
+            recorded = manifest_fst.get(name, {}).get("sha256", "").lower()
+            if recorded != expected[name]:
+                raise RuntimeError(
+                    f"VITS2 TN manifest disagrees with SHA256SUMS for {name}"
+                )
 
 
 def _progress_hook(name: str):
@@ -89,6 +138,8 @@ def ensure_model(name: str, model_dir: str) -> None:
         if not os.path.isfile(os.path.join(model_dir, relative))
     ]
     if not missing:
+        if name == "vits2":
+            _verify_vits2_tn(model_dir)
         log.info(f"[model_downloader] {name}: already exists at {model_dir}")
         return
 
@@ -126,11 +177,7 @@ def ensure_model(name: str, model_dir: str) -> None:
             if name == "vits2" else ""
         )
         if expected_sha256:
-            digest = hashlib.sha256()
-            with open(tmp_path, "rb") as archive:
-                for block in iter(lambda: archive.read(1024 * 1024), b""):
-                    digest.update(block)
-            actual_sha256 = digest.hexdigest()
+            actual_sha256 = _sha256(tmp_path)
             if actual_sha256 != expected_sha256:
                 raise RuntimeError(
                     f"[model_downloader] {name}: SHA256 mismatch: "
@@ -146,6 +193,9 @@ def ensure_model(name: str, model_dir: str) -> None:
                 model_dir,
                 "r:gz" if suffix == ".tar.gz" else "r:bz2",
             )
+
+        if name == "vits2":
+            _verify_vits2_tn(model_dir)
 
         log.info(f"[model_downloader] {name}: done.")
     finally:
