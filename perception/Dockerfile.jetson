@@ -75,7 +75,6 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:/ros_ws/install/audio_msgs/lib:/opt/ros/humbl
     MIX_VITS_SUBSCRIBER_POLL_MS=10 \
     MIX_VITS_SUBSCRIBER_SETTLE_MS=500 \
     MIX_VITS_ALLOW_FAST_DELIVERY=1 \
-    TTS_PLUGIN=vits2_tts_trt \
     DEFAULT_TTS_PLUGIN=vits2_tts_trt \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
