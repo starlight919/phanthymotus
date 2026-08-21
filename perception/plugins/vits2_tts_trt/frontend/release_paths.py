@@ -1,5 +1,7 @@
 """Locations of frontend assets within the verified VITS2 model release."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 
