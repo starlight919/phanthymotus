@@ -1,6 +1,6 @@
 numpy==1.24.4
-pynini==2.1.6
-WeTextProcessing==1.0.4.1
+onnxruntime
+wetext==0.1.6
 pypinyin==0.55.0
 jieba==0.42.1
 g2p-en==2.1.0
