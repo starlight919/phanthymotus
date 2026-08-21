@@ -1,6 +1,7 @@
-numpy==1.24.4
-onnxruntime==1.16.3
-WeTextProcessing==1.0.4.1
+numpy==1.23.5; python_version < "3.9"
+numpy==1.24.4; python_version >= "3.9"
+wetext==0.1.6
+importlib_resources==5.12.0; python_version < "3.9"
 pypinyin==0.55.0
 jieba==0.42.1
 g2p-en==2.1.0

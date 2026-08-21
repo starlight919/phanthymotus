@@ -1,6 +1,6 @@
-import os
 import re
 import runpy
+import os
 
 import jieba
 import numpy as np
@@ -9,16 +9,16 @@ from pypinyin import lazy_pinyin, Style, load_phrases_dict
 from .symbols import punctuation
 from .tone_sandhi import ToneSandhi
 
-from tn.chinese.normalizer import Normalizer as ZhNormalizer
-
 from .heteronym import custom_dict, jieba_phrases
+from .fst_tn import FstTextNormalizer
+from .release_paths import frontend_data_dir, tn_cache_dir
+from .technical_text import normalize_technical_lexemes
 
 
 def _load_phrase_pinyin_data():
-    data_dir = os.getenv("VITS2_FRONTEND_DATA_DIR", os.path.dirname(__file__))
-    di_path = os.path.join(data_dir, "phrase_pinyin_data", "di.py")
-    if os.path.isfile(di_path):
-        runpy.run_path(di_path)["load"]()
+    di_path = frontend_data_dir() / "phrase_pinyin_data" / "di.py"
+    if di_path.is_file():
+        runpy.run_path(str(di_path))["load"]()
 
 
 _load_phrase_pinyin_data()
@@ -28,10 +28,7 @@ for phrase in jieba_phrases:
     jieba.add_word(phrase)
 
 current_file_path = os.path.dirname(__file__)
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-default_tn_cache_dir = os.path.join(project_root, "tn_cache")
-_TN_CACHE_DIR = os.getenv("TN_CACHE_DIR", default_tn_cache_dir)
-_normalizer = ZhNormalizer(cache_dir=_TN_CACHE_DIR)
+_normalizer = FstTextNormalizer(tn_cache_dir())
 
 with open(
     os.path.join(current_file_path, "opencpop-strict.txt"), encoding="utf-8"
@@ -84,9 +81,9 @@ tone_modifier = ToneSandhi()
 
 
 def _post_replace(text: str) -> str:
-    # WeText owns semantic minus, range and identifier classification.  Any
-    # remaining dash handled below is punctuation only.
-    text = text.replace("/", "每")
+    # The TN graph owns dates, arithmetic, units and technical delimiters.
+    # Do not erase raw URL/email characters here: the graph may have emitted
+    # their spoken forms deliberately.
     text = text.replace("①", "一，").replace("②", "二，").replace("③", "三，")
     text = text.replace("④", "四，").replace("⑤", "五，").replace("⑥", "六，")
     text = text.replace("⑦", "七，").replace("⑧", "八，").replace("⑨", "九，")
@@ -107,7 +104,7 @@ def _post_replace(text: str) -> str:
     text = text.replace("ω", "欧米伽").replace("Ω", "欧米伽")
     text = text.replace("+", "加").replace("×", "乘").replace("÷", "除")
     text = text.replace("=", "等于").replace("＞", "大于").replace(">", "大于")
-    text = re.sub(r"[-——《》【】<=>{}()（）#&@^_：、|\\]", "，", text)
+    text = re.sub(r"[—《》【】<=>{}()（）#&^_：、|\\]", "，", text)
     text = re.sub(r"，+", "，", text)
     return text
 
@@ -242,7 +239,7 @@ def _remove_redundant_newlines_after_punctuation(text):
 def text_normalize(text):
     text = _remove_redundant_newlines_after_punctuation(text)
     text = _normalizer.normalize(text)
-    text = _post_replace(text)
+    text = normalize_technical_lexemes(_post_replace(text))
     text = replace_punctuation(text)
     return text
 
@@ -256,7 +253,7 @@ def mix_normalize(text: str) -> str:
     from .english import replace_punctuation as en_replace_punct
     text = _remove_redundant_newlines_after_punctuation(text)
     text = _normalizer.normalize(text)
-    text = _post_replace(text)
+    text = normalize_technical_lexemes(_post_replace(text))
     text = en_replace_punct(text)
     return text
 

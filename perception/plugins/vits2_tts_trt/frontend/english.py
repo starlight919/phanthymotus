@@ -5,6 +5,7 @@ import inflect
 import numpy as np
 
 from .symbols import punctuation, symbols
+from .technical_text import normalize_technical_lexemes
 
 current_file_path = os.path.dirname(__file__)
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -207,6 +208,9 @@ KNOWN_ACRONYMS = {
     'youtube': 'you tube',
     'linkedin': 'linked in',
     'ios': 'I OS',
+    'chattts': 'chat T T S',
+    'styletts2': 'style T T S二',
+    'phanthymotus': 'Phanthy Motus',
 }
 
 
@@ -217,6 +221,7 @@ def _split_acronym(m):
 
 def text_normalize(text):
     text = preprocess_text(text)
+    text = normalize_technical_lexemes(text)
     for name, replacement in KNOWN_ACRONYMS.items():
         text = re.sub(rf"\b{re.escape(name)}\b", replacement, text, flags=re.I)
     # Split acronyms before normalization so G2P reads them letter-by-letter
@@ -232,6 +237,7 @@ def text_normalize(text):
 def text_normalize_without_numbers(text):
     """Normalize an English fragment without expanding Arabic numerals."""
     text = preprocess_text(text)
+    text = normalize_technical_lexemes(text)
     for name, replacement in KNOWN_ACRONYMS.items():
         text = re.sub(rf"\b{re.escape(name)}\b", replacement, text, flags=re.I)
     text = ACRONYM_SPLIT_RE.sub(_split_acronym, text)

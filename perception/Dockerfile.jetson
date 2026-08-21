@@ -8,11 +8,9 @@ ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
 
 FROM ${BASE_IMAGE}
 ARG PYPI_MIRROR APT_MIRROR
-ARG VITS2_DEPS_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/vits2-jp61-runtime-deps.tar.gz
-ARG VITS2_DEPS_SHA256=08627af1112cda2569fbb5665f0346472db061fb56964fe02ea1c64b31802ccc
-ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v3_80k_runtime.tar.gz
-ARG VITS2_MODEL_SHA256=704cec333f0f3af1495c7edc1f446af627d7a55e9c3b23288960f52baace244a
-ARG VITS_MODEL_RELEASE=lc1_male_v3_80k
+ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v4_nf_200k_jp61_runtime.tar.gz
+ARG VITS2_MODEL_SHA256=43f3b1b1090f7bdf407ffa8d2de3b5dddea0cf10593de7a3de26c454452c6e02
+ARG VITS_MODEL_RELEASE=lc1_male_v4_nf_200k
 
 USER root
 RUN if [ -n "${APT_MIRROR}" ]; then \
@@ -22,19 +20,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-# Install a model-independent runtime dependency archive built for this base.
-RUN test -n "${VITS2_DEPS_URL}" && test -n "${VITS2_DEPS_SHA256}" && \
-    curl -fL --retry 3 "${VITS2_DEPS_URL}" -o /tmp/vits2-deps.tar.gz && \
-    echo "${VITS2_DEPS_SHA256}  /tmp/vits2-deps.tar.gz" | sha256sum -c - && \
-    mkdir -p /tmp/vits2-deps && \
-    tar --no-same-owner -xzf /tmp/vits2-deps.tar.gz -C /tmp/vits2-deps && \
-    cd /tmp/vits2-deps && sha256sum -c SHA256SUMS && \
-    cp -a usr/local/. /usr/local/ && \
-    rm -rf /tmp/vits2-deps /tmp/vits2-deps.tar.gz && ldconfig
-
+COPY perception/plugins/vits2_tts_trt/requirements.jetson.txt /tmp/vits2-requirements.txt
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
+      -r /tmp/vits2-requirements.txt \
       pyyaml requests websockets websocket-client colcon-common-extensions "empy<4" && \
-    python3 -c "import ctypes,importlib.util,onnxruntime,pynini,tn; ctypes.CDLL('libfstfar.so'); assert 'CPUExecutionProvider' in onnxruntime.get_available_providers(); assert importlib.util.find_spec('tensorrt') is not None" && \
+    python3 -c "import importlib.util,kaldifst,wetext; assert importlib.util.find_spec('tensorrt') is not None" && \
+    rm -f /tmp/vits2-requirements.txt && \
     test "$(uname -m)" = aarch64 && test -f /opt/ros/humble/install/setup.bash
 
 COPY deploy/ros-base/audio_msgs/ /ros_ws/src/audio_msgs/
