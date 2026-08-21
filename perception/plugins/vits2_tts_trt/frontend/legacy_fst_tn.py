@@ -27,32 +27,58 @@ class LegacyFstNormalizer:
     def __init__(self, release_dir: Union[str, Path]):
         root = Path(release_dir).resolve()
         manifest_path = root / "tn_manifest.json"
-        if not manifest_path.is_file():
-            raise LegacyFstReleaseError(f"missing TN manifest: {manifest_path}")
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise LegacyFstReleaseError(f"invalid TN manifest: {exc}") from exc
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise LegacyFstReleaseError(f"invalid TN manifest: {exc}") from exc
+            graphs = manifest.get("fst")
+            if manifest.get("schema_version") != 1 or not isinstance(graphs, dict):
+                raise LegacyFstReleaseError("unsupported TN manifest schema")
+            self._checksums = {
+                name: metadata.get("sha256")
+                for name, metadata in graphs.items()
+                if isinstance(metadata, dict)
+            }
+            self._sizes = {
+                name: metadata.get("bytes")
+                for name, metadata in graphs.items()
+                if isinstance(metadata, dict)
+            }
+            self.release_contract = "tn_manifest.json"
+        else:
+            self._checksums = self._legacy_checksums(root)
+            self._sizes = {}
+            self.release_contract = "SHA256SUMS"
 
-        graphs = manifest.get("fst")
-        if manifest.get("schema_version") != 1 or not isinstance(graphs, dict):
-            raise LegacyFstReleaseError("unsupported TN manifest schema")
-        self._tagger_path = self._verified_path(root, graphs, "zh_tn_tagger.fst")
-        self._verbalizer_path = self._verified_path(root, graphs, "zh_tn_verbalizer.fst")
+        self._tagger_path = self._verified_path(root, "zh_tn_tagger.fst")
+        self._verbalizer_path = self._verified_path(root, "zh_tn_verbalizer.fst")
 
     @staticmethod
-    def _verified_path(root: Path, graphs: dict, filename: str) -> str:
-        metadata = graphs.get(filename)
-        if not isinstance(metadata, dict):
-            raise LegacyFstReleaseError(f"TN manifest does not declare {filename}")
+    def _legacy_checksums(root: Path) -> dict:
+        checksum_file = root / "SHA256SUMS"
+        if not checksum_file.is_file():
+            raise LegacyFstReleaseError(
+                f"missing TN manifest and SHA256SUMS: {root}"
+            )
+        entries = {}
+        for line in checksum_file.read_text(encoding="utf-8").splitlines():
+            fields = line.split()
+            if len(fields) == 2 and len(fields[0]) == 64:
+                entries[fields[1]] = fields[0]
+        return entries
+
+    def _verified_path(self, root: Path, filename: str) -> str:
+        expected = self._checksums.get(filename)
+        if not isinstance(expected, str) or len(expected) != 64:
+            raise LegacyFstReleaseError(f"TN release does not declare {filename}")
         path = (root / filename).resolve()
         if root not in path.parents or not path.is_file():
             raise LegacyFstReleaseError(f"missing TN graph: {filename}")
-        expected = metadata.get("sha256")
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if not isinstance(expected, str) or expected != actual:
+        if expected != actual:
             raise LegacyFstReleaseError(f"TN graph checksum mismatch: {filename}")
-        expected_size = metadata.get("bytes")
+        expected_size = self._sizes.get(filename)
         if expected_size is not None and path.stat().st_size != expected_size:
             raise LegacyFstReleaseError(f"TN graph size mismatch: {filename}")
         return str(path)
@@ -72,7 +98,7 @@ class LegacyFstNormalizer:
         if not text:
             return text
         tagged = self._tagger(text)
-        # Legacy graphs expect raw token values.  The released wetext parser
+        # Legacy graphs expect raw token values. The released wetext parser
         # escapes values for its bundled graphs, so disable that serialization
         # only for this graph pair.
         original_escape = token_parser.escape_value

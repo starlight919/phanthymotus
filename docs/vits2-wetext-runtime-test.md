@@ -5,11 +5,11 @@ its lightweight `kaldifst` runtime. It intentionally does not compile or
 install OpenFST/Pynini in the Jetson Docker build.
 
 JP5.1.1 uses Python 3.8. `wetext==0.1.6` imports the Python 3.9-only
-`importlib.resources.files`, despite declaring Python 3.7 support. The Docker
-build installs the standard `importlib_resources` backport and applies the
-equivalent import fallback to the installed package before importing it. This
-is a Python-version compatibility patch only; it does not alter FST graphs or
-TN behavior.
+`importlib.resources.files`, despite declaring Python 3.7 support. Only on
+Python <3.9, the Docker build installs the standard `importlib_resources`
+backport and applies the equivalent import fallback before importing WeText.
+JP6 leaves the published package untouched. This is a Python-version
+compatibility patch only; it does not alter FST graphs or TN behavior.
 
 `onnxruntime` remains installed because it is used by the existing perception
 runtime. TensorRT plans remain external model artifacts and are mounted or
@@ -20,6 +20,12 @@ directly through `kaldifst`, with WeText's token parser providing the existing
 tagger-to-verbalizer ordering. No private wheel or source archive is fetched.
 This adapter is intentionally a test implementation; after native validation,
 the same interface should move upstream into WeText.
+
+The current V3 80k model revision predates `tn_manifest.json` and supplies
+`SHA256SUMS`; the adapter validates that legacy contract as well. Its `20dB`
+output is the historical `二十dB`. A corrected `二十分贝` graph must be shipped
+as a new ModelScope model revision with its matching manifest, never injected
+by the runtime.
 
 Build a JP6.1 image on a native Jetson with:
 
