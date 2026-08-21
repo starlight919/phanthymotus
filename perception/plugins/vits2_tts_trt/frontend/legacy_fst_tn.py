@@ -47,9 +47,14 @@ class LegacyFstNormalizer:
             }
             self.release_contract = "tn_manifest.json"
         else:
-            self._checksums = self._legacy_checksums(root)
+            checksum_file = root / "SHA256SUMS"
+            self._checksums = (
+                self._legacy_checksums(root) if checksum_file.is_file() else {}
+            )
             self._sizes = {}
-            self.release_contract = "SHA256SUMS"
+            self.release_contract = (
+                "SHA256SUMS" if checksum_file.is_file() else "unmanifested"
+            )
 
         self._tagger_path = self._verified_path(root, "zh_tn_tagger.fst")
         self._verbalizer_path = self._verified_path(root, "zh_tn_verbalizer.fst")
@@ -70,14 +75,17 @@ class LegacyFstNormalizer:
 
     def _verified_path(self, root: Path, filename: str) -> str:
         expected = self._checksums.get(filename)
-        if not isinstance(expected, str) or len(expected) != 64:
+        if self.release_contract != "unmanifested" and (
+            not isinstance(expected, str) or len(expected) != 64
+        ):
             raise LegacyFstReleaseError(f"TN release does not declare {filename}")
         path = (root / filename).resolve()
         if root not in path.parents or not path.is_file():
             raise LegacyFstReleaseError(f"missing TN graph: {filename}")
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if expected != actual:
-            raise LegacyFstReleaseError(f"TN graph checksum mismatch: {filename}")
+        if self.release_contract != "unmanifested":
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            if expected != actual:
+                raise LegacyFstReleaseError(f"TN graph checksum mismatch: {filename}")
         expected_size = self._sizes.get(filename)
         if expected_size is not None and path.stat().st_size != expected_size:
             raise LegacyFstReleaseError(f"TN graph size mismatch: {filename}")

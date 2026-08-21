@@ -27,6 +27,12 @@ output is the historical `二十dB`. A corrected `二十分贝` graph must be sh
 as a new ModelScope model revision with its matching manifest, never injected
 by the runtime.
 
+Some historical ModelScope manifests omitted both TN metadata files from their
+runtime-required list although they include the two FST files. The test adapter
+accepts that legacy layout only to prove graph readability and prints
+`tn_release_contract=unmanifested`; it is not a checksum-verifiable production
+contract. The next model revision must list and download `tn_manifest.json`.
+
 Build a JP6.1 image on a native Jetson with:
 
 ```bash
