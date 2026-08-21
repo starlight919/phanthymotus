@@ -21,12 +21,29 @@ eval "$(parse_mirror_arg "$@")"
 
 # ── 解析参数 ─────────────────────────────────────────────────────────
 VARIANT="cpu"
+JP_VERSION="${JP_VERSION:-6}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --variant) VARIANT="$2"; shift 2 ;;
+        --jp-version) JP_VERSION="$2"; shift 2 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+case "${JP_VERSION}" in
+    5|511|5.11|5.1.1)
+        JP_TAG="511"; JP_LABEL="5.1.1"
+        VITS2_MODEL_URL="${VITS2_MODEL_URL:-http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v4_nf_200k_jp511_runtime.tar.gz}"
+        VITS2_MODEL_SHA256="${VITS2_MODEL_SHA256:-3cfc43827e645d25aeb7ec6f6d693934080b579b6ad4caee03682e2aee043f4e}"
+        ;;
+    6|61|6.1)
+        JP_TAG="61"; JP_LABEL="6.1"
+        VITS2_MODEL_URL="${VITS2_MODEL_URL:-http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v4_nf_200k_jp61_runtime.tar.gz}"
+        VITS2_MODEL_SHA256="${VITS2_MODEL_SHA256:-43f3b1b1090f7bdf407ffa8d2de3b5dddea0cf10593de7a3de26c454452c6e02}"
+        ;;
+    *) echo "Unknown JP_VERSION=${JP_VERSION} (supported: 5, 5.11, 6, 6.1)" >&2; exit 1 ;;
+esac
+VITS_MODEL_RELEASE="${VITS_MODEL_RELEASE:-lc1_male_v4_nf_200k}"
 
 RESOURCE_CENTER_URL="${RESOURCE_CENTER_URL:-https://motus.phanthy.com}"
 
@@ -52,7 +69,7 @@ case "${VARIANT}" in
     jetson)
         DOCKERFILE="${REPO_ROOT}/perception/Dockerfile.jetson"
         BUILD_CONTEXT="${REPO_ROOT}"
-        TAG="release.${DATE}.${COMMIT}-jetson"
+        TAG="release.${DATE}.${COMMIT}-jetson-jp${JP_TAG}"
         ;;
     *)
         echo "Unknown variant: ${VARIANT}  (supported: cpu, jetson)"
@@ -65,6 +82,10 @@ FULL_IMAGE="${REGISTRY}/${IMAGE_NAMESPACE}/perception:${TAG}"
 echo "============================================"
 echo "Building perception-stack image"
 echo "Variant: ${VARIANT}"
+if [[ "${VARIANT}" == "jetson" ]]; then
+    echo "JetPack: ${JP_LABEL} (base tag jp${JP_TAG})"
+    echo "Model  : ${VITS_MODEL_RELEASE}"
+fi
 echo "Image  : ${FULL_IMAGE}"
 echo "Arch   : ${ARCH} (native=${IS_ARM64})"
 echo "Push   : ${PUSH_ENABLED}"
@@ -76,7 +97,15 @@ fi
 
 select_mirror
 
-do_build "${DOCKERFILE}" "${BUILD_CONTEXT}" "${FULL_IMAGE}"
+if [[ "${VARIANT}" == "jetson" ]]; then
+    do_build "${DOCKERFILE}" "${BUILD_CONTEXT}" "${FULL_IMAGE}" \
+        "JP_VERSION=${JP_TAG}" \
+        "VITS_MODEL_RELEASE=${VITS_MODEL_RELEASE}" \
+        "VITS2_MODEL_URL=${VITS2_MODEL_URL}" \
+        "VITS2_MODEL_SHA256=${VITS2_MODEL_SHA256}"
+else
+    do_build "${DOCKERFILE}" "${BUILD_CONTEXT}" "${FULL_IMAGE}"
+fi
 
 if ${PUSH_ENABLED}; then
     do_push "${FULL_IMAGE}"

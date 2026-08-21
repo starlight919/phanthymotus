@@ -111,7 +111,6 @@ MODELS = {
         "check_files": (
             "config.json",
             "engines/manifest.json",
-            "onnx/onnx_manifest.json",
             "tn_cache/zh_tn_tagger.fst",
             "tn_cache/zh_tn_verbalizer.fst",
             "frontend_data/phrase_pinyin_data/di.py",
