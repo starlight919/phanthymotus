@@ -1,5 +1,5 @@
-# TTS-only image used by the leaderboard submission. JP6.1 is the default;
-# target-specific dependency and model archives are selected through build args.
+# Jetson image for the VITS2 TensorRT TTS backend. JP6.1 is the default;
+# target-specific dependencies and model archives are selected through build args.
 
 ARG JP_VERSION=61
 ARG BASE_IMAGE=bj-warehouse.tencentcloudcr.com/phanthy-motus/jetson-base:jp${JP_VERSION}-torch
@@ -24,7 +24,7 @@ COPY perception/plugins/vits2_tts_trt/requirements.jetson.txt /tmp/vits2-require
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
       -r /tmp/vits2-requirements.txt \
       pyyaml requests websockets websocket-client colcon-common-extensions "empy<4" && \
-    python3 -c "import importlib.util,kaldifst,wetext; assert importlib.util.find_spec('tensorrt') is not None" && \
+    python3 -c "import sys,importlib.resources as r; (setattr(r,'files',__import__('importlib_resources').files) if sys.version_info < (3,9) else None); import importlib.util,kaldifst,wetext; assert importlib.util.find_spec('tensorrt') is not None" && \
     rm -f /tmp/vits2-requirements.txt && \
     test "$(uname -m)" = aarch64 && test -f /opt/ros/humble/install/setup.bash
 
@@ -44,7 +44,7 @@ ENV VITS2_MODEL_URL=${VITS2_MODEL_URL} \
     VITS2_MODEL_SHA256=${VITS2_MODEL_SHA256} \
     VITS_MODEL_RELEASE=${VITS_MODEL_RELEASE}
 
-# A leaderboard build may bake the release.  Keeping both args empty produces
+# A deployment build may bake the release. Keeping both args empty produces
 # a runtime-download image; providing only one is a configuration error.
 RUN if [ -n "${VITS2_MODEL_URL}" ] || [ -n "${VITS2_MODEL_SHA256}" ]; then \
       test -n "${VITS2_MODEL_URL}" && test -n "${VITS2_MODEL_SHA256}" && \
