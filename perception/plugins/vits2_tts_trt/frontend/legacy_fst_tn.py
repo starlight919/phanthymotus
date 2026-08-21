@@ -11,6 +11,7 @@ import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Union
 
 import kaldifst
 from wetext import token_parser
@@ -23,7 +24,7 @@ class LegacyFstReleaseError(ValueError):
 class LegacyFstNormalizer:
     """Execute the deployed ``zh_tn`` tagger/verbalizer graph pair."""
 
-    def __init__(self, release_dir: str | Path):
+    def __init__(self, release_dir: Union[str, Path]):
         root = Path(release_dir).resolve()
         manifest_path = root / "tn_manifest.json"
         if not manifest_path.is_file():

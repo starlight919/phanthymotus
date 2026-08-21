@@ -4,6 +4,13 @@ This branch tests the VITS2 frontend with the published `wetext` package and
 its lightweight `kaldifst` runtime. It intentionally does not compile or
 install OpenFST/Pynini in the Jetson Docker build.
 
+JP5.1.1 uses Python 3.8. `wetext==0.1.6` imports the Python 3.9-only
+`importlib.resources.files`, despite declaring Python 3.7 support. The Docker
+build installs the standard `importlib_resources` backport and applies the
+equivalent import fallback to the installed package before importing it. This
+is a Python-version compatibility patch only; it does not alter FST graphs or
+TN behavior.
+
 `onnxruntime` remains installed because it is used by the existing perception
 runtime. TensorRT plans remain external model artifacts and are mounted or
 downloaded through the normal VITS2 model-release path.

@@ -141,6 +141,7 @@ RUN pip3 install --no-cache-dir -i ${PYPI_MIRROR} phonemizer
 COPY perception/plugins/vits2_tts_trt/requirements.jetson.txt /tmp/vits2-requirements.txt
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
       -r /tmp/vits2-requirements.txt && \
+    python3 -c "from pathlib import Path; import site; path=next(Path(root) / 'wetext' / 'constants.py' for root in site.getsitepackages() if (Path(root) / 'wetext' / 'constants.py').is_file()); source=path.read_text(); old='from importlib.resources import files'; new='try:\\n    from importlib.resources import files\\nexcept ImportError:\\n    from importlib_resources import files'; assert old in source, 'unexpected wetext constants.py'; path.write_text(source.replace(old, new, 1))" && \
     python3 -c "import kaldifst,numpy,onnxruntime,wetext" && \
     rm -f /tmp/vits2-requirements.txt
 
