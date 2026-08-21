@@ -21,17 +21,24 @@ tagger-to-verbalizer ordering. No private wheel or source archive is fetched.
 This adapter is intentionally a test implementation; after native validation,
 the same interface should move upstream into WeText.
 
-The current V3 80k model revision predates `tn_manifest.json` and supplies
-`SHA256SUMS`; the adapter validates that legacy contract as well. Its `20dB`
-output is the historical `二十dB`. A corrected `二十分贝` graph must be shipped
-as a new ModelScope model revision with its matching manifest, never injected
-by the runtime.
+The pinned ModelScope revision includes a checksum-verified `tn_manifest.json`
+and both TN FSTs; its expected `20dB` output is `二十分贝`. The VITS2 release is
+downloaded lazily by the service, so a validation must call the production
+downloader before it inspects `/models/vits2/tn_cache`. An empty cache before
+that call is not a missing-release error and does not require republishing the
+model.
 
-Some historical ModelScope manifests omitted both TN metadata files from their
-runtime-required list although they include the two FST files. The test adapter
-accepts that legacy layout only to prove graph readability and prints
-`tn_release_contract=unmanifested`; it is not a checksum-verifiable production
-contract. The next model revision must list and download `tn_manifest.json`.
+The adapter retains legacy metadata handling only for backwards compatibility;
+the current validation requires the manifest contract and does not accept an
+unmanifested release.
+
+## JP5 Python compatibility
+
+JP5.1.1 uses Python 3.8. One of the legacy frontend dependencies still uses
+the removed `np.bool` alias, so the shared requirements file pins
+`numpy==1.23.5` for Python < 3.9 and retains `numpy==1.24.4` for JP6/Python
+3.9+. This is an ABI/runtime compatibility constraint, not a model or TensorRT
+difference. The Docker build applies the matching marker automatically.
 
 Build a JP6.1 image on a native Jetson with:
 
