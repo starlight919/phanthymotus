@@ -7,10 +7,11 @@ ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
 ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
 
 FROM ${BASE_IMAGE}
+ARG JP_VERSION
 ARG PYPI_MIRROR APT_MIRROR
-ARG VITS2_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v4_nf_200k_jp61_runtime.tar.gz
-ARG VITS2_MODEL_SHA256=43f3b1b1090f7bdf407ffa8d2de3b5dddea0cf10593de7a3de26c454452c6e02
-ARG VITS_MODEL_RELEASE=lc1_male_v4_nf_200k
+ARG VITS2_MODEL_URL=
+ARG VITS2_MODEL_SHA256=
+ARG VITS_MODEL_RELEASE=lc1_male_v5_technical_120k
 
 USER root
 RUN if [ -n "${APT_MIRROR}" ]; then \
@@ -44,12 +45,22 @@ ENV VITS2_MODEL_URL=${VITS2_MODEL_URL} \
     VITS2_MODEL_SHA256=${VITS2_MODEL_SHA256} \
     VITS_MODEL_RELEASE=${VITS_MODEL_RELEASE}
 
-# A deployment build may bake the release. Keeping both args empty produces
-# a runtime-download image; providing only one is a configuration error.
-RUN if [ -n "${VITS2_MODEL_URL}" ] || [ -n "${VITS2_MODEL_SHA256}" ]; then \
-      test -n "${VITS2_MODEL_URL}" && test -n "${VITS2_MODEL_SHA256}" && \
-      python3 -c "from utils.model_downloader import ensure_model; ensure_model('vits2', '/models/vits2-mix')"; \
-    fi
+# The release is selected automatically from JP_VERSION when URL/SHA are not
+# explicitly overridden. This keeps JP5 and JP6 builds on matching plans.
+RUN set -eu; \
+    if [ -z "${VITS2_MODEL_URL}" ] || [ -z "${VITS2_MODEL_SHA256}" ]; then \
+      case "${JP_VERSION}" in \
+        61) \
+          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp6_runtime.tar.gz"; \
+          VITS2_MODEL_SHA256="7d54d61e1922e84ad44246078193780db43bfa826fae6cf95960c079879b353a" ;; \
+        511) \
+          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp5_runtime.tar.gz"; \
+          VITS2_MODEL_SHA256="6b737df393c8812f721ecfffde9ce879c748a0ce5f4e6fd054d436faf25eb1e1" ;; \
+        *) echo "unsupported JP_VERSION=${JP_VERSION}; use 61 or 511" >&2; exit 2 ;; \
+      esac; \
+    fi; \
+    VITS2_MODEL_URL="${VITS2_MODEL_URL}" VITS2_MODEL_SHA256="${VITS2_MODEL_SHA256}" \
+      python3 -c "from utils.model_downloader import ensure_model; ensure_model('vits2', '/models/vits2-mix')"
 
 RUN ROS_PTH="$(python3 -c 'import site; print(site.getsitepackages()[0])')/ros_ws.pth" && \
     find /ros_ws/install -name site-packages -type d \
