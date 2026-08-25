@@ -54,8 +54,8 @@ RUN set -eu; \
           VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp6_runtime.tar.gz"; \
           VITS2_MODEL_SHA256="7d54d61e1922e84ad44246078193780db43bfa826fae6cf95960c079879b353a" ;; \
         511) \
-          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp5_runtime.tar.gz"; \
-          VITS2_MODEL_SHA256="6b737df393c8812f721ecfffde9ce879c748a0ce5f4e6fd054d436faf25eb1e1" ;; \
+          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp5_nocudnn_nojit_runtime.tar.gz"; \
+          VITS2_MODEL_SHA256="5c4b32cdefd6c72ad19d3af4014ed67f0be24485d0dbc199990cadbae4a097c0" ;; \
         *) echo "unsupported JP_VERSION=${JP_VERSION}; use 61 or 511" >&2; exit 2 ;; \
       esac; \
     fi; \
