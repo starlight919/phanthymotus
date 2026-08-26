@@ -353,11 +353,17 @@ class TTSPlugin:
                         time.monotonic() - started,
                     )
                 self._adapter = adapter
-                self._model_name = (
-                    "vits2-tensorrt-jp6"
-                    if isinstance(adapter, Vits2TensorRTAdapter)
-                    else "vits2-onnx-cpu"
-                )
+                if isinstance(adapter, Vits2TensorRTAdapter):
+                    encoder_backend = adapter._engine.runtime_info.get(
+                        "encoder_backend", "trt"
+                    )
+                    self._model_name = (
+                        "vits2-onnx-cpu-encoder-trt"
+                        if encoder_backend == "onnx_cpu"
+                        else "vits2-tensorrt"
+                    )
+                else:
+                    self._model_name = "vits2-onnx-cpu"
                 self._load_error = None
             except Exception as exc:
                 self._load_error = str(exc)

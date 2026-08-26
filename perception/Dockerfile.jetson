@@ -25,7 +25,13 @@ COPY perception/plugins/vits2_tts_trt/requirements.jetson.txt /tmp/vits2-require
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
       -r /tmp/vits2-requirements.txt \
       pyyaml requests websockets websocket-client colcon-common-extensions "empy<4" && \
+    if [ "${JP_VERSION}" = "511" ]; then \
+      pip3 install --no-cache-dir -i "${PYPI_MIRROR}" onnxruntime==1.16.3; \
+    fi && \
     python3 -c "import sys,importlib.resources as r; (setattr(r,'files',__import__('importlib_resources').files) if sys.version_info < (3,9) else None); import importlib.util,kaldifst,wetext; assert importlib.util.find_spec('tensorrt') is not None" && \
+    if [ "${JP_VERSION}" = "511" ]; then \
+      python3 -c "import onnxruntime; assert 'CPUExecutionProvider' in onnxruntime.get_available_providers()"; \
+    fi && \
     rm -f /tmp/vits2-requirements.txt && \
     test "$(uname -m)" = aarch64 && test -f /opt/ros/humble/install/setup.bash
 
@@ -79,6 +85,8 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:/ros_ws/install/audio_msgs/lib:/opt/ros/humbl
     MIX_VITS_MAX_TEXT_TOKENS=256 \
     MIX_VITS_MAX_FRAMES=2048 \
     MIX_VITS_INFERENCE_SEED=42 \
+    MIX_VITS_ENCODER_BACKEND=auto \
+    MIX_VITS_ENCODER_THREADS=1 \
     MIX_VITS_CHUNK_BYTES=3200 \
     MIX_VITS_FRAME_INTERVAL_MS=70 \
     MIX_VITS_FIRST_FRAME_DELAY_MS=0 \

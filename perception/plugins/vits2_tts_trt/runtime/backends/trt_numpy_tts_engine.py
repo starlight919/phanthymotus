@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -22,6 +23,66 @@ def _profile_max(manifest, name, fallback):
         return int(profile.split(",")[2])
     except (IndexError, TypeError, ValueError):
         return int(fallback)
+
+
+def _fixed_profile_length(manifest, name):
+    profile = str(manifest.get("profiles", {}).get(name, ""))
+    try:
+        values = tuple(int(value) for value in profile.split(","))
+    except (TypeError, ValueError):
+        return None
+    return values[0] if len(values) == 3 and len(set(values)) == 1 else None
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class _OnnxCpuEncoderSession:
+    """Validated ONNX Runtime session for the encoder-duration graph only."""
+
+    def __init__(self, model_dir, num_threads=1):
+        import onnxruntime as ort
+
+        model_dir = Path(model_dir)
+        manifest_path = model_dir / "onnx_manifest.json"
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"ONNX manifest not found: {manifest_path}")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        entry = manifest.get("models", {}).get("encoder_duration")
+        if entry is None:
+            raise RuntimeError("ONNX manifest is missing encoder_duration")
+        model_path = model_dir / entry["file"]
+        if not model_path.is_file():
+            raise FileNotFoundError(model_path)
+        if model_path.stat().st_size != int(entry["bytes"]):
+            raise RuntimeError(f"ONNX size mismatch: {model_path}")
+        if _sha256(model_path) != entry["sha256"]:
+            raise RuntimeError(f"ONNX checksum mismatch: {model_path}")
+
+        options = ort.SessionOptions()
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        options.intra_op_num_threads = max(1, int(num_threads))
+        options.inter_op_num_threads = 1
+        self._session = ort.InferenceSession(
+            str(model_path),
+            sess_options=options,
+            providers=["CPUExecutionProvider"],
+        )
+        if self._session.get_providers() != ["CPUExecutionProvider"]:
+            raise RuntimeError(
+                f"Unexpected ONNX providers: {self._session.get_providers()}"
+            )
+        self._output_names = [item.name for item in self._session.get_outputs()]
+
+    def run(self, inputs):
+        values = self._session.run(self._output_names, inputs)
+        return dict(zip(self._output_names, values))
 
 
 def _intersperse(values, item=0):
@@ -90,6 +151,9 @@ class TensorRTNumpyTTSEngine:
         self.n_fft = int(config["model"].get("gen_istft_n_fft", 16))
         self.istft_hop = int(config["model"].get("gen_istft_hop_size", 4))
         text_profile_max = _profile_max(self.manifest, "text", 512)
+        self.encoder_fixed_text_length = _fixed_profile_length(
+            self.manifest, "text"
+        )
         frame_profile_max = _profile_max(self.manifest, "frames", 2048)
         decoder_profile_max = _profile_max(
             self.manifest, "decoder_frames", frame_profile_max
@@ -136,15 +200,39 @@ class TensorRTNumpyTTSEngine:
         self.cuda = CudaRuntime()
         self._validate_manifest()
         engines = self.manifest["engines"]
-        self.encoder = self._load_engine("encoder_duration", engines)
+        encoder_backend = os.getenv("MIX_VITS_ENCODER_BACKEND", "auto").lower()
+        if encoder_backend not in {"auto", "trt", "onnx_cpu"}:
+            raise ValueError(
+                "MIX_VITS_ENCODER_BACKEND must be auto, trt, or onnx_cpu"
+            )
+        if encoder_backend == "auto":
+            encoder_backend = (
+                "onnx_cpu"
+                if int(self.manifest.get("tensorrt_major", 0)) < 10
+                else "trt"
+            )
+        if encoder_backend == "onnx_cpu":
+            self.encoder = _OnnxCpuEncoderSession(
+                self.engine_dir.parent / "onnx",
+                os.getenv("MIX_VITS_ENCODER_THREADS", "1"),
+            )
+            self.encoder_fixed_text_length = None
+        else:
+            self.encoder = self._load_engine("encoder_duration", engines)
         self.flow = self._load_engine("flow", engines)
         self.decoder = self._load_engine("decoder", engines)
         self.runtime_info = {
-            "backend": "tensorrt_cuda_numpy",
+            "backend": (
+                "onnx_cpu_encoder_tensorrt_flow_decoder"
+                if encoder_backend == "onnx_cpu"
+                else "tensorrt_cuda_numpy"
+            ),
+            "encoder_backend": encoder_backend,
             "engine_dir": str(self.engine_dir),
             "total_engine_bytes": self.manifest["total_engine_bytes"],
             "tensorrt_version": self.manifest["trtexec_version"],
             "inference_seed": self.inference_seed,
+            "encoder_fixed_text_length": self.encoder_fixed_text_length,
         }
 
     def reset_random_state(self, seed: int | None = None):
@@ -250,19 +338,26 @@ class TensorRTNumpyTTSEngine:
             raise ValueError(
                 f"Text has {text_length} tokens; TensorRT profile limit is {self.max_text_tokens}"
             )
-        outputs = self.encoder.run(
-            {
-                "x": np.asarray([phone_ids], dtype=np.int32),
-                "x_lengths": np.asarray([text_length], dtype=np.int32),
-                "tone": np.asarray([tone_ids], dtype=np.int32),
-                "language": np.asarray([lang_ids], dtype=np.int32),
-                "sid": np.zeros(1, dtype=np.int32),
-            }
-        )
-        m_p = outputs["m_p"].astype(np.float32)
-        logs_p = outputs["logs_p"].astype(np.float32)
-        x_mask = outputs["x_mask"].astype(np.float32)
-        logw = outputs["logw"].astype(np.float32)
+        encoder_length = self.encoder_fixed_text_length or text_length
+        pad_width = encoder_length - text_length
+        if pad_width < 0:
+            raise ValueError(
+                f"Text has {text_length} tokens; fixed encoder length is "
+                f"{encoder_length}"
+            )
+        padding = ((0, 0), (0, pad_width))
+        encoder_inputs = {
+            "x": np.pad(np.asarray([phone_ids], dtype=np.int32), padding),
+            "x_lengths": np.asarray([text_length], dtype=np.int32),
+            "tone": np.pad(np.asarray([tone_ids], dtype=np.int32), padding),
+            "language": np.pad(np.asarray([lang_ids], dtype=np.int32), padding),
+            "sid": np.zeros(1, dtype=np.int32),
+        }
+        outputs = self.encoder.run(encoder_inputs)
+        m_p = outputs["m_p"][..., :text_length].astype(np.float32)
+        logs_p = outputs["logs_p"][..., :text_length].astype(np.float32)
+        x_mask = outputs["x_mask"][..., :text_length].astype(np.float32)
+        logw = outputs["logw"][..., :text_length].astype(np.float32)
         g = outputs["g"].astype(np.float32)
         duration = np.ceil(np.exp(logw) * x_mask * length_scale)
         y_lengths = np.maximum(np.sum(duration, axis=(1, 2)), 1).astype(np.int64)
