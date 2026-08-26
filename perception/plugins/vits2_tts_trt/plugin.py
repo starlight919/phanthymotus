@@ -357,11 +357,18 @@ class TTSPlugin:
                     encoder_backend = adapter._engine.runtime_info.get(
                         "encoder_backend", "trt"
                     )
-                    self._model_name = (
-                        "vits2-onnx-cpu-encoder-trt"
-                        if encoder_backend == "onnx_cpu"
-                        else "vits2-tensorrt"
+                    flow_backend = adapter._engine.runtime_info.get(
+                        "flow_backend", "trt"
                     )
+                    if (
+                        encoder_backend == "onnx_cpu"
+                        and flow_backend == "onnx_cpu"
+                    ):
+                        self._model_name = "vits2-onnx-cpu-encoder-flow-trt-decoder"
+                    elif encoder_backend == "onnx_cpu":
+                        self._model_name = "vits2-onnx-cpu-encoder-trt"
+                    else:
+                        self._model_name = "vits2-tensorrt"
                 else:
                     self._model_name = "vits2-onnx-cpu"
                 self._load_error = None

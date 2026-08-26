@@ -42,10 +42,10 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-class _OnnxCpuEncoderSession:
-    """Validated ONNX Runtime session for the encoder-duration graph only."""
+class _OnnxCpuSession:
+    """Validated ONNX Runtime CPU session for one release graph."""
 
-    def __init__(self, model_dir, num_threads=1):
+    def __init__(self, model_dir, model_name, num_threads=1):
         import onnxruntime as ort
 
         model_dir = Path(model_dir)
@@ -53,9 +53,9 @@ class _OnnxCpuEncoderSession:
         if not manifest_path.is_file():
             raise FileNotFoundError(f"ONNX manifest not found: {manifest_path}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entry = manifest.get("models", {}).get("encoder_duration")
+        entry = manifest.get("models", {}).get(model_name)
         if entry is None:
-            raise RuntimeError("ONNX manifest is missing encoder_duration")
+            raise RuntimeError(f"ONNX manifest is missing {model_name}")
         model_path = model_dir / entry["file"]
         if not model_path.is_file():
             raise FileNotFoundError(model_path)
@@ -212,14 +212,25 @@ class TensorRTNumpyTTSEngine:
                 else "trt"
             )
         if encoder_backend == "onnx_cpu":
-            self.encoder = _OnnxCpuEncoderSession(
+            self.encoder = _OnnxCpuSession(
                 self.engine_dir.parent / "onnx",
+                "encoder_duration",
                 os.getenv("MIX_VITS_ENCODER_THREADS", "1"),
             )
             self.encoder_fixed_text_length = None
         else:
             self.encoder = self._load_engine("encoder_duration", engines)
-        self.flow = self._load_engine("flow", engines)
+        flow_backend = os.getenv("MIX_VITS_FLOW_BACKEND", "trt").lower()
+        if flow_backend not in {"trt", "onnx_cpu"}:
+            raise ValueError("MIX_VITS_FLOW_BACKEND must be trt or onnx_cpu")
+        if flow_backend == "onnx_cpu":
+            self.flow = _OnnxCpuSession(
+                self.engine_dir.parent / "onnx",
+                "flow",
+                os.getenv("MIX_VITS_FLOW_THREADS", "1"),
+            )
+        else:
+            self.flow = self._load_engine("flow", engines)
         self.decoder = self._load_engine("decoder", engines)
         self.runtime_info = {
             "backend": (
@@ -228,6 +239,7 @@ class TensorRTNumpyTTSEngine:
                 else "tensorrt_cuda_numpy"
             ),
             "encoder_backend": encoder_backend,
+            "flow_backend": flow_backend,
             "engine_dir": str(self.engine_dir),
             "total_engine_bytes": self.manifest["total_engine_bytes"],
             "tensorrt_version": self.manifest["trtexec_version"],
