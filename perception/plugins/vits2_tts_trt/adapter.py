@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .runtime.backends.trt_numpy_tts_engine import TensorRTNumpyTTSEngine
@@ -108,25 +109,35 @@ class Vits2TensorRTAdapter(TTSAdapter):
             reset_random_state = getattr(self._engine, "reset_random_state", None)
             if reset_random_state is not None:
                 reset_random_state()
-            for chunk_index, (chunk, text_ids) in enumerate(
-                self.iter_text_chunks(text)
-            ):
-                token_count = len(text_ids[0])
-                log.info(
-                    "text redacted: chars=%d chunk=%d tokens=%d",
-                    len(text.strip()),
-                    chunk_index,
-                    token_count,
-                )
-                if chunk_index and silence:
-                    yield silence
-                pcm = self._engine.synthesize(
+            chunks = list(self.iter_text_chunks(text))
+
+            def synthesize_chunk(item):
+                chunk, text_ids = item
+                return self._engine.synthesize(
                     chunk,
                     text_ids=text_ids,
                     length_scale=1.0 / self._speed,
                 )
-                for offset in range(0, len(pcm), CHUNK_BYTES):
-                    yield pcm[offset : offset + CHUNK_BYTES]
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                pending = executor.submit(synthesize_chunk, chunks[0])
+                for chunk_index, (chunk, text_ids) in enumerate(chunks):
+                    pcm = pending.result()
+                    if chunk_index + 1 < len(chunks):
+                        pending = executor.submit(
+                            synthesize_chunk, chunks[chunk_index + 1]
+                        )
+                    token_count = len(text_ids[0])
+                    log.info(
+                        "text redacted: chars=%d chunk=%d tokens=%d",
+                        len(text.strip()),
+                        chunk_index,
+                        token_count,
+                    )
+                    if chunk_index and silence:
+                        yield silence
+                    for offset in range(0, len(pcm), CHUNK_BYTES):
+                        yield pcm[offset : offset + CHUNK_BYTES]
 
     def warmup(self) -> int:
         warmup_bytes = 0
