@@ -5,9 +5,8 @@ FROM ${BASE_IMAGE}
 
 ARG JP_VERSION
 ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
-ARG ORT_INDEX_JP6=https://pypi.jetson-ai-lab.io/jp6/cu126
-ARG ORT_VERSION_JP6=1.24.0
 ARG ORT_PACKAGE_JP5=https://github.com/ultralytics/assets/releases/download/v0.0.0/onnxruntime_gpu-1.16.3-cp38-cp38-linux_aarch64.whl
+ARG ORT_PACKAGE_JP6=http://172.28.4.81:34567/liaoqianqian/models/nano-jetson/wheels/onnxruntime_gpu-1.24.0-cp310-cp310-linux_aarch64.whl
 ARG MATCHA_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/matcha-phonetone/matcha-phonetone-male-v2-104999-hifigan.tar.gz
 ARG MATCHA_MODEL_SHA256=8b61f06d54129fe28b4ef3e0e538ede0bdff1d33daf214a78bc548ac4414fd03
 
@@ -19,13 +18,16 @@ COPY perception/plugins/matcha_phonetone/requirements.jetson.txt /tmp/requiremen
 RUN pip3 install --no-cache-dir --ignore-installed -i "${PYPI_MIRROR}" PyYAML==6.0.2 && \
     pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
     pip3 install --no-cache-dir -i "${PYPI_MIRROR}" colcon-common-extensions "empy<4" && \
-    case "${JP_VERSION}" in \
-      511) pip3 install --no-cache-dir "${ORT_PACKAGE_JP5}" ;; \
-      61) pip3 install --no-cache-dir -i "${PYPI_MIRROR}" --extra-index-url "${ORT_INDEX_JP6}" "onnxruntime-gpu==${ORT_VERSION_JP6}" ;; \
-      *) echo "unsupported JP_VERSION=${JP_VERSION}" >&2; exit 2 ;; \
-    esac && \
-    python3 -c "import onnxruntime as ort; assert 'CUDAExecutionProvider' in ort.get_available_providers(), ort.get_available_providers()" && \
     rm -f /tmp/requirements.txt
+
+RUN case "${JP_VERSION}" in \
+      511) pip3 install --no-cache-dir "${ORT_PACKAGE_JP5}" ;; \
+      61) pip3 install --no-cache-dir "${ORT_PACKAGE_JP6}" ;; \
+      *) echo "unsupported JP_VERSION=${JP_VERSION}" >&2; exit 2 ;; \
+    esac
+
+RUN python3 -c "import onnxruntime as ort; assert 'CUDAExecutionProvider' in ort.get_available_providers(), ort.get_available_providers()" && \
+    python3 -c "import onnxruntime as ort; print(ort.__version__, ort.get_available_providers())"
 
 COPY deploy/ros-base/audio_msgs/ /ros_ws/src/audio_msgs/
 RUN cd /ros_ws && . /opt/ros/humble/install/setup.bash && \
