@@ -21,8 +21,8 @@ RUN pip3 install --no-cache-dir --ignore-installed -i "${PYPI_MIRROR}" PyYAML==6
     rm -f /tmp/requirements.txt
 
 RUN case "${JP_VERSION}" in \
-      511) pip3 install --no-cache-dir "${ORT_PACKAGE_JP5}" ;; \
-      61) pip3 install --no-cache-dir "${ORT_PACKAGE_JP6}" ;; \
+      511) pip3 install --no-cache-dir -i "${PYPI_MIRROR}" "${ORT_PACKAGE_JP5}" ;; \
+      61) pip3 install --no-cache-dir -i "${PYPI_MIRROR}" "${ORT_PACKAGE_JP6}" ;; \
       *) echo "unsupported JP_VERSION=${JP_VERSION}" >&2; exit 2 ;; \
     esac
 
