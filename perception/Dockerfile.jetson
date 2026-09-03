@@ -7,8 +7,8 @@ ARG JP_VERSION
 ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
 ARG ORT_PACKAGE_JP5=https://github.com/ultralytics/assets/releases/download/v0.0.0/onnxruntime_gpu-1.16.3-cp38-cp38-linux_aarch64.whl
 ARG ORT_PACKAGE_JP6=http://172.28.4.81:34567/liaoqianqian/models/nano-jetson/wheels/onnxruntime_gpu-1.24.0-cp310-cp310-linux_aarch64.whl
-ARG MATCHA_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/matcha-phonetone/matcha-phonetone-male-v2-104999-hifigan.tar.gz
-ARG MATCHA_MODEL_SHA256=8b61f06d54129fe28b4ef3e0e538ede0bdff1d33daf214a78bc548ac4414fd03
+ARG MATCHA_MODEL_URL=http://172.28.4.81:34567/liaoqianqian/models/matcha-phonetone/matcha-phonetone-male-v2-104999-steps-2-6.tar.gz
+ARG MATCHA_MODEL_SHA256
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
@@ -37,7 +37,15 @@ RUN mkdir -p /models/matcha-phonetone && \
     curl -fsSL "${MATCHA_MODEL_URL}" -o /tmp/matcha.tar.gz && \
     echo "${MATCHA_MODEL_SHA256}  /tmp/matcha.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/matcha.tar.gz -C /models/matcha-phonetone && \
-    test -s /models/matcha-phonetone/model.onnx && \
+    test -s /models/matcha-phonetone/model-steps-2.onnx && \
+    test -s /models/matcha-phonetone/model-steps-3.onnx && \
+    test -s /models/matcha-phonetone/model-steps-4.onnx && \
+    test -s /models/matcha-phonetone/model-steps-5.onnx && \
+    test -s /models/matcha-phonetone/model-steps-6.onnx && \
+    test -s /models/matcha-phonetone/hifigan.onnx && \
+    test -s /models/matcha-phonetone/vocos.onnx && \
+    test -s /models/matcha-phonetone/bigvgan.onnx && \
+    test -s /models/matcha-phonetone/bigvgan.onnx.data && \
     test -f /models/matcha-phonetone/frontend_release/frontend_manifest.json && \
     rm -f /tmp/matcha.tar.gz
 

@@ -5,6 +5,7 @@ plugins:
     enabled: true
     engine: matcha_ort
     model_dir: /models/matcha-phonetone
+    vocoder: vocos
     device: cuda
     speaker_id: 0
     speed: 1.0

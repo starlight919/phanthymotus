@@ -273,11 +273,19 @@ def _build_tts_adapter(cfg: dict) -> TTSAdapter:
     import os
     if str(cfg.get('engine', '')).lower() == 'matcha_ort':
         from plugins.matcha_phonetone.adapter import MatchaPhoneToneORTAdapter
+        steps = os.environ.get('MATCHA_STEPS', '')
+        acoustic_model = str(cfg.get('acoustic_model', ''))
+        if steps and not acoustic_model:
+            acoustic_model = os.path.join(cfg.get('model_dir', '/models/matcha-phonetone'),
+                                          f'model-steps-{steps}.onnx')
         return MatchaPhoneToneORTAdapter(
             cfg.get('model_dir', '/models/matcha-phonetone'),
             int(cfg.get('speaker_id', 0)),
             float(cfg.get('speed', 1.0)),
             str(cfg.get('device', 'cuda')),
+            vocoder=os.environ.get('MATCHA_VOCODER', cfg.get('vocoder', 'vocos')),
+            acoustic_model=acoustic_model,
+            vocoder_model=str(cfg.get('vocoder_model', '')),
         )
     from utils.onnx_provider import normalize_device
     model_dir = cfg.get('model_dir', '/models/sherpa-onnx/tts')
@@ -479,6 +487,7 @@ class _TTSNode(Node):
                 frames_sent = 0
                 prebuf = []   # pre-buffer queue
                 synth_elapsed = [0.0]
+                synth_parts = []
 
                 def publish(frame: bytes) -> None:
                     nonlocal frames_sent
@@ -545,9 +554,17 @@ class _TTSNode(Node):
                 def synthesize_into_queue() -> None:
                     synth_started = _time.monotonic()
                     pending = b''
+                    model_seconds = 0.0
                     try:
                         for seg in segments:
+                            part_recorded = False
                             for raw_chunk in self._adapter.synthesize_stream(seg):
+                                if not part_recorded:
+                                    timing = getattr(self._adapter, "last_timings", None)
+                                    if timing and "total_seconds" in timing:
+                                        synth_parts.append({**timing, "chars": len(seg)})
+                                        model_seconds += float(timing["total_seconds"])
+                                        part_recorded = True
                                 pending += raw_chunk
                                 synth_state["total"] += len(raw_chunk)
                                 while len(pending) >= CHUNK_BYTES:
@@ -559,7 +576,7 @@ class _TTSNode(Node):
                     except BaseException as exc:  # surfaced on the worker thread
                         synth_state["error"] = exc
                     finally:
-                        synth_elapsed[0] = _time.monotonic() - synth_started
+                        synth_elapsed[0] = model_seconds or (_time.monotonic() - synth_started)
                         # Unblock the consumer on every exit path.
                         enqueue_frame(_SYNTH_DONE)
 
@@ -639,7 +656,9 @@ class _TTSNode(Node):
                     if t0_wall:
                         spans.append({**_span_base, "span": "tts_generate",
                                       "start_ts": t_start_wall, "end_ts": t0_wall,
-                                      "meta": {"chars": len(text)}})
+                                      "meta": {"chars": len(text),
+                                               "synth_seconds": synth_elapsed[0],
+                                               "parts": synth_parts}})
                         spans.append({**_span_base, "span": "tts_playback",
                                       "start_ts": t0_wall, "end_ts": t_end_wall,
                                       "meta": {"frames": frames_sent}})
@@ -647,7 +666,9 @@ class _TTSNode(Node):
                         # 没有 prebuf（极短文本），合并为一个 span
                         spans.append({**_span_base, "span": "tts_generate",
                                       "start_ts": t_start_wall, "end_ts": t_end_wall,
-                                      "meta": {"chars": len(text), "frames": frames_sent}})
+                                      "meta": {"chars": len(text), "frames": frames_sent,
+                                               "synth_seconds": synth_elapsed[0],
+                                               "parts": synth_parts}})
                     for sp in spans:
                         perf_msg = String()
                         perf_msg.data = _json.dumps(sp)
