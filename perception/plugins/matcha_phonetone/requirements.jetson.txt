@@ -1,5 +1,3 @@
-# PhoneTone frontend only. TensorRT, PyTorch, sherpa-onnx and non-TTS plugins
-# deliberately stay out of the leaderboard image.
 PyYAML==6.0.2
 pypinyin==0.55.0
 wetext==0.1.6
@@ -9,3 +7,5 @@ inflect==7.4.0
 nltk==3.9.1
 Unidecode==1.3.8
 importlib_resources==5.12.0; python_version < "3.9"
+onnxruntime-gpu==1.16.3; python_version < "3.10"
+onnxruntime-gpu==1.24.0; python_version >= "3.10"
