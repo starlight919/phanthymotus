@@ -290,12 +290,14 @@ def _build_tts_adapter(cfg: dict) -> TTSAdapter:
 # ── ROS2 Node ─────────────────────────────────────────────────────────────────
 
 class _TTSNode(Node):
-    def __init__(self, input_topic: Optional[str], adapter: Optional[TTSAdapter], node_suffix: str = ''):
+    def __init__(self, input_topic: Optional[str], adapter: Optional[TTSAdapter], node_suffix: str = '',
+                 realtime_pacing: bool = True):
         node_name = f"tts_{node_suffix}" if node_suffix else "tts"
         super().__init__(node_name)
         self._input_topic  = input_topic or ''
         self._output_topic = f"{input_topic}/tts" if input_topic else '/perception/tts'
         self._adapter      = adapter
+        self._realtime_pacing = realtime_pacing
         self.state         = "idle"
         self._text_queue   = queue.Queue()
         self._worker_thread: Optional[threading.Thread] = None
@@ -500,7 +502,7 @@ class _TTSNode(Node):
                         fire_hook("on_speaking")
                     target = t0 + frames_sent * FRAME_INTERVAL_S
                     now = _time.monotonic()
-                    if now < target:
+                    if self._realtime_pacing and now < target:
                         _time.sleep(target - now)
                     # No rebase when behind: publishing immediately is the
                     # catch-up, since the schedule is already ahead of realtime.
@@ -696,6 +698,7 @@ class SherpaOnnxTTSPlugin:
 
     def __init__(self, plugin_cfg: dict, executor):
         self._cfg      = plugin_cfg
+        self._realtime_pacing = bool(plugin_cfg.get('realtime_pacing', True))
         self._loading  = False
         self._load_error = None
         try:
@@ -821,7 +824,8 @@ class SherpaOnnxTTSPlugin:
                 node = self._nodes.get(node_key)
                 if node is None:
                     node = _TTSNode(input_topic or None, self._adapter,
-                                    node_suffix=node_key.replace('/', '_').replace('-', '_'))
+                                    node_suffix=node_key.replace('/', '_').replace('-', '_'),
+                                    realtime_pacing=self._realtime_pacing)
                     self._executor.add_node(node)
                     self._nodes[node_key] = node
                 elif input_topic and node._input_topic != input_topic:
@@ -829,7 +833,8 @@ class SherpaOnnxTTSPlugin:
                     del self._nodes[node_key]
                     self._dispose_node(node, node_key)
                     node = _TTSNode(input_topic, self._adapter,
-                                    node_suffix=node_key.replace('/', '_').replace('-', '_'))
+                                    node_suffix=node_key.replace('/', '_').replace('-', '_'),
+                                    realtime_pacing=self._realtime_pacing)
                     self._executor.add_node(node)
                     self._nodes[node_key] = node
                 return node.start()
@@ -874,7 +879,8 @@ class SherpaOnnxTTSPlugin:
                         # no running node raised AttributeError instead of
                         # synthesizing.
                         node = _TTSNode(input_topic, self._adapter,
-                                        node_suffix=node_key.replace('/', '_').replace('-', '_'))
+                                        node_suffix=node_key.replace('/', '_').replace('-', '_'),
+                                        realtime_pacing=self._realtime_pacing)
                         self._executor.add_node(node)
                         self._nodes[node_key] = node
                     if node.state != "running":

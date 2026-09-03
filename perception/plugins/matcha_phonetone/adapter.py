@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,7 @@ from .frontend import prepare_phonetone
 
 SAMPLE_RATE = 16000
 CHUNK_BYTES = 3200
+log = logging.getLogger(__name__)
 
 
 def _intersperse(values: list[int]) -> list[int]:
@@ -40,6 +42,10 @@ class MatchaPhoneToneORTAdapter:
             raise RuntimeError("CUDAExecutionProvider is unavailable")
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         self._session = ort.InferenceSession(str(graph), providers=providers)
+        active_providers = self._session.get_providers()
+        if "CUDAExecutionProvider" not in active_providers:
+            raise RuntimeError(f"CUDAExecutionProvider is not active: {active_providers}")
+        log.info("[tts] Matcha ORT device=%s providers=%s", ort.get_device(), active_providers)
         self._inputs = {item.name for item in self._session.get_inputs()}
         required = {"x", "x_lengths", "tones", "languages", "scales"}
         missing = required - self._inputs

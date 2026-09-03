@@ -8,3 +8,4 @@ plugins:
     device: cuda
     speaker_id: 0
     speed: 1.0
+    realtime_pacing: false

@@ -25,12 +25,15 @@ def test_adapter_passes_all_phonetone_inputs_and_trims_wav(monkeypatch, tmp_path
                     ("x", "x_lengths", "tones", "languages", "scales")]
         def get_outputs(self):
             return [types.SimpleNamespace(name=name) for name in ("wav", "wav_lengths")]
+        def get_providers(self):
+            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
         def run(self, _outputs, inputs):
             captured["inputs"] = inputs
             return [np.array([[0.0, 1.0, -1.0]], dtype=np.float32), np.array([2])]
 
     ort = types.ModuleType("onnxruntime")
     ort.get_available_providers = lambda: ["CUDAExecutionProvider"]
+    ort.get_device = lambda: "GPU"
     ort.InferenceSession = Session
     monkeypatch.setitem(sys.modules, "onnxruntime", ort)
     sys.modules.pop("plugins.matcha_phonetone.adapter", None)
