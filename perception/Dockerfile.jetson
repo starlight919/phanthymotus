@@ -16,7 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 COPY perception/plugins/matcha_phonetone/requirements.jetson.txt /tmp/requirements.txt
-RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
+RUN pip3 install --no-cache-dir --ignore-installed -i "${PYPI_MIRROR}" PyYAML==6.0.2 && \
+    pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
     pip3 install --no-cache-dir -i "${PYPI_MIRROR}" colcon-common-extensions "empy<4" && \
     case "${JP_VERSION}" in \
       511) pip3 install --no-cache-dir "${ORT_PACKAGE_JP5}" ;; \
