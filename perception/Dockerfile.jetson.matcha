@@ -4,26 +4,27 @@ ARG JP_VERSION=61
 ARG BASE_IMAGE=bj-warehouse.tencentcloudcr.com/phanthy-motus/jetson-base:jp${JP_VERSION}-torch
 FROM ${BASE_IMAGE}
 
+ARG JP_VERSION
 ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
-ARG ORT_WHEEL_URL
-ARG ORT_WHEEL_SHA256
 ARG MATCHA_MODEL_URL
 ARG MATCHA_MODEL_SHA256
 
 USER root
-RUN test -n "${ORT_WHEEL_URL}" && test -n "${ORT_WHEEL_SHA256}" && \
-    test -n "${MATCHA_MODEL_URL}" && test -n "${MATCHA_MODEL_SHA256}"
+RUN test -n "${MATCHA_MODEL_URL}" && test -n "${MATCHA_MODEL_SHA256}"
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY perception/requirements.matcha-jetson.txt /tmp/requirements.txt
-RUN curl -fsSL "${ORT_WHEEL_URL}" -o /tmp/onnxruntime.whl && \
-    echo "${ORT_WHEEL_SHA256}  /tmp/onnxruntime.whl" | sha256sum -c - && \
-    pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
+RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
     pip3 install --no-cache-dir -i "${PYPI_MIRROR}" colcon-common-extensions "empy<4" && \
-    pip3 install --no-cache-dir /tmp/onnxruntime.whl && \
+    case "${JP_VERSION}" in \
+      511) ort_url='https://github.com/ultralytics/assets/releases/download/v0.0.0/onnxruntime_gpu-1.16.3-cp38-cp38-linux_aarch64.whl' ;; \
+      61) ort_url='http://172.28.4.81:34567/liaoqianqian/models/nano-jetson/wheels/onnxruntime_gpu-1.24.0-cp310-cp310-linux_aarch64.whl' ;; \
+      *) echo "unsupported JP_VERSION=${JP_VERSION}" >&2; exit 2 ;; \
+    esac && \
+    pip3 install --no-cache-dir "${ort_url}" && \
     python3 -c "import onnxruntime as ort; assert 'CUDAExecutionProvider' in ort.get_available_providers(), ort.get_available_providers()" && \
-    rm -f /tmp/onnxruntime.whl /tmp/requirements.txt
+    rm -f /tmp/requirements.txt
 
 COPY deploy/ros-base/audio_msgs/ /ros_ws/src/audio_msgs/
 RUN cd /ros_ws && . /opt/ros/humble/install/setup.bash && \
