@@ -16,6 +16,9 @@ from pathlib import Path
 from unidecode import unidecode
 
 from .token_vocabulary import TokenVocabulary
+from .wetext_compat import ensure_wetext_compat
+
+ensure_wetext_compat()
 
 PUNCTUATION = set(";:,.!?-—…\"'()[] ")
 PUNCTUATION_MAP = {"，": ",", "。": ".", "！": "!", "？": "?", "；": ";", "：": ":",

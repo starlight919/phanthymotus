@@ -476,6 +476,7 @@ class _TTSNode(Node):
                 t0 = None  # monotonic start of the pacing schedule
                 frames_sent = 0
                 prebuf = []   # pre-buffer queue
+                synth_elapsed = [0.0]
 
                 def publish(frame: bytes) -> None:
                     nonlocal frames_sent
@@ -540,6 +541,7 @@ class _TTSNode(Node):
                             continue
 
                 def synthesize_into_queue() -> None:
+                    synth_started = _time.monotonic()
                     pending = b''
                     try:
                         for seg in segments:
@@ -555,6 +557,7 @@ class _TTSNode(Node):
                     except BaseException as exc:  # surfaced on the worker thread
                         synth_state["error"] = exc
                     finally:
+                        synth_elapsed[0] = _time.monotonic() - synth_started
                         # Unblock the consumer on every exit path.
                         enqueue_frame(_SYNTH_DONE)
 
@@ -612,7 +615,14 @@ class _TTSNode(Node):
                 if was_interrupted:
                     log.info(f"[tts] utterance interrupted after {frames_sent} frames")
                 else:
-                    log.info(f"[tts] spoke {len(text)} chars → {total} bytes ({frames_sent} frames) in {_time.monotonic() - t_start:.2f}s")
+                    elapsed = _time.monotonic() - t_start
+                    audio_seconds = total / (SAMPLE_RATE * 2) if total else 0.0
+                    synth_rtf = synth_elapsed[0] / audio_seconds if audio_seconds else 0.0
+                    e2e_rtf = elapsed / audio_seconds if audio_seconds else 0.0
+                    log.info(
+                        f"[tts] spoke {len(text)} chars → {total} bytes ({frames_sent} frames) "
+                        f"in {elapsed:.2f}s, synth_RTF={synth_rtf:.2f}, e2e_RTF={e2e_rtf:.2f}"
+                    )
 
                 # 发布 EOF 标记：告知下游 Speaker 当前 utterance 已结束
                 self._publish_eof()
