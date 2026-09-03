@@ -477,8 +477,8 @@ def main():
     global _bundle
 
     cfg      = _load_config()
-    mcp_port = int(cfg.get("mcp_port", 15720))
-    ws_port  = int(cfg.get("ws_port",  15721))
+    mcp_port = int(os.environ.get("MCP_PORT", cfg.get("mcp_port", 15720)))
+    ws_port  = int(os.environ.get("WS_PORT", cfg.get("ws_port", 15721)))
 
     log.info(f"perception bundle starting, mcp_port={mcp_port}, ws_port={ws_port}")
     log.info(f"config: plugins.asr.enabled={cfg.get('plugins',{}).get('asr',{}).get('enabled')}, "
@@ -502,8 +502,12 @@ def main():
 
     threading.Thread(target=_spin, daemon=True, name="perception_spin").start()
 
-    # Start WebSocket ASR server in a separate thread
-    threading.Thread(target=_start_ws_thread, args=(ws_port,), daemon=True, name="ws_asr").start()
+    # The websocket endpoint imports and builds the ASR stack. Do not start it
+    # for a TTS-only deployment; it is otherwise an unnecessary dependency and
+    # a background error when ASR was deliberately omitted from the image.
+    if asr_cfg.get("enabled", False):
+        threading.Thread(target=_start_ws_thread, args=(ws_port,), daemon=True,
+                         name="ws_asr").start()
 
     _start_registration(mcp_port, "Perception Stack", "perception")
 

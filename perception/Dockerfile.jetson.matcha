@@ -1,0 +1,57 @@
+# TTS-only PhoneTone Matcha image. JP5 and JP6 share source code but use their
+# own CUDA-bound ONNX Runtime wheels.
+ARG JP_VERSION=61
+ARG BASE_IMAGE=bj-warehouse.tencentcloudcr.com/phanthy-motus/jetson-base:jp${JP_VERSION}-torch
+FROM ${BASE_IMAGE}
+
+ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
+ARG ORT_WHEEL_URL
+ARG ORT_WHEEL_SHA256
+ARG MATCHA_MODEL_URL
+ARG MATCHA_MODEL_SHA256
+
+USER root
+RUN test -n "${ORT_WHEEL_URL}" && test -n "${ORT_WHEEL_SHA256}" && \
+    test -n "${MATCHA_MODEL_URL}" && test -n "${MATCHA_MODEL_SHA256}"
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY perception/requirements.matcha-jetson.txt /tmp/requirements.txt
+RUN curl -fsSL "${ORT_WHEEL_URL}" -o /tmp/onnxruntime.whl && \
+    echo "${ORT_WHEEL_SHA256}  /tmp/onnxruntime.whl" | sha256sum -c - && \
+    pip3 install --no-cache-dir -i "${PYPI_MIRROR}" -r /tmp/requirements.txt && \
+    pip3 install --no-cache-dir -i "${PYPI_MIRROR}" colcon-common-extensions "empy<4" && \
+    pip3 install --no-cache-dir /tmp/onnxruntime.whl && \
+    python3 -c "import onnxruntime as ort; assert 'CUDAExecutionProvider' in ort.get_available_providers(), ort.get_available_providers()" && \
+    rm -f /tmp/onnxruntime.whl /tmp/requirements.txt
+
+COPY deploy/ros-base/audio_msgs/ /ros_ws/src/audio_msgs/
+RUN cd /ros_ws && . /opt/ros/humble/install/setup.bash && \
+    colcon build --packages-select audio_msgs --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+RUN mkdir -p /models/matcha-phonetone && \
+    curl -fsSL "${MATCHA_MODEL_URL}" -o /tmp/matcha.tar.gz && \
+    echo "${MATCHA_MODEL_SHA256}  /tmp/matcha.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/matcha.tar.gz -C /models/matcha-phonetone && \
+    test -s /models/matcha-phonetone/model.onnx && \
+    test -f /models/matcha-phonetone/frontend_release/frontend_manifest.json && \
+    rm -f /tmp/matcha.tar.gz
+
+WORKDIR /work
+COPY perception/main.py /work/main.py
+COPY perception/config.leaderboard-matcha.yaml /work/config.yaml
+COPY perception/plugins/tts.py /work/plugins/tts.py
+COPY perception/plugins/matcha_phonetone/ /work/plugins/matcha_phonetone/
+COPY perception/utils/__init__.py perception/utils/logsafe.py /work/utils/
+
+RUN ROS_PTH="$(python3 -c 'import site; print(site.getsitepackages()[0])')/ros_ws.pth" && \
+    find /ros_ws/install -name site-packages -type d > "${ROS_PTH}" && \
+    find /opt/ros/humble/install -name site-packages -type d >> "${ROS_PTH}"
+
+ENV CONFIG_PATH=/work/config.yaml \
+    AMENT_PREFIX_PATH=/ros_ws/install/audio_msgs:/opt/ros/humble/install \
+    LD_LIBRARY_PATH=/ros_ws/install/audio_msgs/lib:/opt/ros/humble/install/lib:${LD_LIBRARY_PATH} \
+    PYTHONUNBUFFERED=1 \
+    RCUTILS_COLORIZED_OUTPUT=0
+EXPOSE 15720
+CMD ["/bin/bash", "-c", "source /opt/ros/humble/install/setup.bash && source /ros_ws/install/setup.bash && exec python3 /work/main.py"]

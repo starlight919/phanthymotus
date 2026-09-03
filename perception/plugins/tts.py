@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-plugins/tts.py — TTSPlugin: sherpa-onnx VITS TTS.
-
-On-device text-to-speech using sherpa-onnx MeloTTS (Chinese + English).
+plugins/tts.py — public TTS plugin with selectable local engines.
 """
 
 from __future__ import annotations
@@ -169,17 +167,15 @@ TOOLS = [
                 # builds the config form from configSchema, so an engine that
                 # exists solely as a baked YAML key cannot be seen or switched
                 # without rebuilding the image. Mirrors asr_model in asr.py.
-                "tts_engine": {"type": "string", "enum": ["vits2_trt", "sherpa_onnx"],
-                               "description": "TTS engine (vits2_trt = VITS2 TensorRT on Jetson, "
-                                              "sherpa_onnx = sherpa-onnx Matcha)",
+                "tts_engine": {"type": "string", "enum": ["vits2_trt", "sherpa_onnx", "matcha_ort"],
+                               "description": "TTS engine",
                                "default": "vits2_trt", "scope": "shared"},
                 # sherpa_onnx only — vits2_trt is a TensorRT engine and never
                 # touches ONNX Runtime, so this field does nothing for it. Matcha's
                 # weights are fp32, so both devices load the same files and only
                 # the provider changes; measured 4.3x faster on gpu.
                 "device":      {"type": "string", "enum": ["cpu", "gpu"],
-                                "description": "Inference device for the sherpa_onnx engine "
-                                               "(gpu needs the CUDA sherpa-onnx wheel; ~4.3x faster)",
+                                "description": "Inference device",
                                 "default": "cpu", "scope": "shared",
                                 "x-show-when": {"tts_engine": "sherpa_onnx"}},
                 "speaker_id": {"type": "integer", "description": "Speaker ID (VITS2 supports 0 only)", "default": 0, "scope": "shared"},
@@ -275,6 +271,14 @@ class SherpaOnnxTTSAdapter(TTSAdapter):
 
 def _build_tts_adapter(cfg: dict) -> TTSAdapter:
     import os
+    if str(cfg.get('engine', '')).lower() == 'matcha_ort':
+        from plugins.matcha_phonetone.adapter import MatchaPhoneToneORTAdapter
+        return MatchaPhoneToneORTAdapter(
+            cfg.get('model_dir', '/models/matcha-phonetone'),
+            int(cfg.get('speaker_id', 0)),
+            float(cfg.get('speed', 1.0)),
+            str(cfg.get('device', 'cuda')),
+        )
     from utils.onnx_provider import normalize_device
     model_dir = cfg.get('model_dir', '/models/sherpa-onnx/tts')
     speaker_id = int(cfg.get('speaker_id', 0))
@@ -700,7 +704,7 @@ class SherpaOnnxTTSPlugin:
         # RLock: dispatch paths nest (start → _dispose_node).
         self._nodes_lock = threading.RLock()
         self._executor = executor
-        log.info(f"[tts] plugin init: sherpa-onnx VITS, "
+        log.info(f"[tts] plugin init: engine={plugin_cfg.get('engine', 'sherpa_onnx')}, "
                  f"speaker_id={plugin_cfg.get('speaker_id', 0)}, speed={plugin_cfg.get('speed', 1.0)}")
 
     def _dispose_node(self, node: _TTSNode, key: str = "") -> dict:
@@ -912,12 +916,13 @@ class SherpaOnnxTTSPlugin:
 
 
 DEFAULT_TTS_ENGINE = "vits2_trt"
-TTS_ENGINES = ("vits2_trt", "sherpa_onnx")
+TTS_ENGINES = ("vits2_trt", "sherpa_onnx", "matcha_ort")
 # Where each engine keeps its own model files. Used for any engine other than
 # the one config.yaml was written for; see TTSPlugin._model_dir_for.
 ENGINE_MODEL_DIRS = {
     "vits2_trt": "/models/vits2",
     "sherpa_onnx": "/models/sherpa-onnx/tts",
+    "matcha_ort": "/models/matcha-phonetone",
 }
 # How long an `action=config` engine switch waits for the new engine before
 # answering `loading`. Sized so the bounded part of a build finishes inside it
@@ -934,8 +939,7 @@ class TTSPlugin:
     A facade rather than a `__new__` switch: the engine is a configSchema field,
     so it can change at runtime (`action=config`, `tts_engine=...`) and not only
     at process start. Switching disposes the previous engine's nodes and builds
-    the new one on a background thread, because sherpa-onnx downloads its Matcha
-    model in its constructor and that is open-ended.
+    the new one on a background thread.
 
     `action=config` then waits up to ENGINE_SWITCH_WAIT_S for that build and only
     answers `loading` if it is still going, so the bounded part — constructing the

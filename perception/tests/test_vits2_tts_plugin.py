@@ -450,7 +450,7 @@ def test_tool_is_the_standard_tts_tool_with_an_engine_selector():
     config = tools[0]["configSchema"]["properties"]
     # The engine has to be visible in the device panel, or switching it means
     # rebuilding the image (see PR #112 review).
-    assert config["tts_engine"]["enum"] == ["vits2_trt", "sherpa_onnx"]
+    assert config["tts_engine"]["enum"] == ["vits2_trt", "sherpa_onnx", "matcha_ort"]
     assert vits2.TTSPlugin.PREFIX == "tts"
 
 
