@@ -336,7 +336,9 @@ class _TTSNode(Node):
             raise RuntimeError("TTS adapter not configured")
         # Dry-run: verify model can synthesize before declaring running
         try:
-            test_chunks = list(self._adapter.synthesize_stream("."))
+            warmup = getattr(self._adapter, "warmup", None)
+            test_chunks = (warmup() if callable(warmup)
+                           else sum(len(chunk) for chunk in self._adapter.synthesize_stream(".")))
             if not test_chunks:
                 return {"state": "error", "message": "TTS dry-run produced no audio"}
         except Exception as e:

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import frontend
 from .frontend import prepare_phonetone
 
 SAMPLE_RATE = 16000
@@ -258,4 +259,9 @@ class MatchaPhoneToneORTAdapter:
             yield pcm[offset:offset + CHUNK_BYTES]
 
     def warmup(self) -> int:
-        return sum(len(chunk) for chunk in self.synthesize_stream("你好。"))
+        frontend._g2p()
+        total = 0
+        for text in ("你好。", "你好，Lucy正在检查PPT和GPS数据。",
+                     "2026年上半年形成包含Phanthy Platform、Phanthy Cloud、PhanRouter、Phanthy Movie和Phanthy Motus在内的产品体系。"):
+            total += len(self.synthesize(text))
+        return total

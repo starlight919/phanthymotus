@@ -163,6 +163,7 @@ def _g2p():
     return G2p()
 
 
+@lru_cache(maxsize=4096)
 def _en_phones(word: str) -> tuple[list[str], list[int]]:
     _, custom_en, cmu, _ = _assets()
     pronunciation = custom_en.get(word.upper()) or cmu.get(word.upper())
