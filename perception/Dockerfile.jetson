@@ -11,7 +11,7 @@ ARG JP_VERSION
 ARG PYPI_MIRROR APT_MIRROR
 ARG VITS2_MODEL_URL=
 ARG VITS2_MODEL_SHA256=
-ARG VITS_MODEL_RELEASE=lc1_male_v5_technical_120k
+ARG VITS_MODEL_RELEASE=lc1_male_v6_frontend_146k
 
 USER root
 RUN if [ -n "${APT_MIRROR}" ]; then \
@@ -25,13 +25,7 @@ COPY perception/plugins/vits2_tts_trt/requirements.jetson.txt /tmp/vits2-require
 RUN pip3 install --no-cache-dir -i "${PYPI_MIRROR}" \
       -r /tmp/vits2-requirements.txt \
       pyyaml requests websockets websocket-client colcon-common-extensions "empy<4" && \
-    if [ "${JP_VERSION}" = "511" ]; then \
-      pip3 install --no-cache-dir -i "${PYPI_MIRROR}" onnxruntime==1.16.3; \
-    fi && \
     python3 -c "import sys,importlib.resources as r; (setattr(r,'files',__import__('importlib_resources').files) if sys.version_info < (3,9) else None); import importlib.util,kaldifst,wetext; assert importlib.util.find_spec('tensorrt') is not None" && \
-    if [ "${JP_VERSION}" = "511" ]; then \
-      python3 -c "import onnxruntime; assert 'CPUExecutionProvider' in onnxruntime.get_available_providers()"; \
-    fi && \
     rm -f /tmp/vits2-requirements.txt && \
     test "$(uname -m)" = aarch64 && test -f /opt/ros/humble/install/setup.bash
 
@@ -57,11 +51,11 @@ RUN set -eu; \
     if [ -z "${VITS2_MODEL_URL}" ] || [ -z "${VITS2_MODEL_SHA256}" ]; then \
       case "${JP_VERSION}" in \
         61) \
-          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp6_runtime.tar.gz"; \
-          VITS2_MODEL_SHA256="7d54d61e1922e84ad44246078193780db43bfa826fae6cf95960c079879b353a" ;; \
+          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v6_frontend_146k_jp6_runtime.tar.gz"; \
+          VITS2_MODEL_SHA256="fe66e1822a09a9185ae444e6a3d8377d0c84bb24ddcc413bd9a7fd2acb8c9b83" ;; \
         511) \
-          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v5_technical_120k_jp5_nocudnn_nojit_runtime.tar.gz"; \
-          VITS2_MODEL_SHA256="5c4b32cdefd6c72ad19d3af4014ed67f0be24485d0dbc199990cadbae4a097c0" ;; \
+          VITS2_MODEL_URL="http://172.28.4.81:34567/liaoqianqian/models/lc1-jetson/lc1_male_v6_frontend_146k_jp5_nocudnn_nojit_runtime.tar.gz"; \
+          VITS2_MODEL_SHA256="4cac88e6e598c295d3b734d309313fb45c016beb882d959ad4ccf78f10c225d3" ;; \
         *) echo "unsupported JP_VERSION=${JP_VERSION}; use 61 or 511" >&2; exit 2 ;; \
       esac; \
     fi; \
@@ -85,7 +79,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:/ros_ws/install/audio_msgs/lib:/opt/ros/humbl
     MIX_VITS_MAX_TEXT_TOKENS=256 \
     MIX_VITS_MAX_FRAMES=2048 \
     MIX_VITS_INFERENCE_SEED=42 \
-    MIX_VITS_ENCODER_BACKEND=auto \
+    MIX_VITS_ENCODER_BACKEND=trt \
     MIX_VITS_ENCODER_THREADS=1 \
     MIX_VITS_CHUNK_BYTES=3200 \
     MIX_VITS_FRAME_INTERVAL_MS=70 \

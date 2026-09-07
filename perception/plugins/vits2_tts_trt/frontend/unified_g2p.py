@@ -27,7 +27,7 @@ import re
 
 from g2p_en import G2p
 from .symbols import punctuation
-from .english import eng_dict, refine_ph, post_replace_ph, arpa
+from .english import CUSTOM_EN_PRONUNCIATIONS, eng_dict, refine_ph, post_replace_ph, arpa
 
 current_file_path = os.path.dirname(__file__)
 with open(os.path.join(current_file_path, "opencpop-strict.txt"), encoding="utf-8") as _f:
@@ -60,11 +60,6 @@ _MIX_TOKEN_RE = re.compile(
 _LETTER_SPELLED_UNITS = {"KB", "MB", "GB", "TB", "PB", "KBPS", "MBPS", "GBPS"}
 # Deterministic pronunciations missing from the stock CMU dictionary. Keep this
 # tiny and release-controlled: training/export and deployed runtime must match.
-_CUSTOM_EN_PRONUNCIATIONS = {
-    "IELTS": [["AY1"], ["EH0", "L", "T", "S"]],
-}
-
-
 def _split_pinyin(tone3: str):
     """Split a TONE3 pinyin string into (initial, final_no_tone, tone_int).
 
@@ -139,7 +134,7 @@ def _en_token_to_phones(word: str):
             phones.extend(letter_phones)
             tones.extend(letter_tones)
         return phones, tones
-    syllables = _CUSTOM_EN_PRONUNCIATIONS.get(word.upper(), eng_dict.get(word.upper()))
+    syllables = CUSTOM_EN_PRONUNCIATIONS.get(word.upper(), eng_dict.get(word.upper()))
     if syllables is not None:
         for syllable in syllables:
             for phn in syllable:

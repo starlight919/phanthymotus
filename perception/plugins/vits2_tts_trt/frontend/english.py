@@ -304,6 +304,12 @@ def get_dict():
 
 eng_dict = get_dict()
 
+CUSTOM_EN_PRONUNCIATIONS = {
+    "CUDA": [["K", "UW1", "D", "AH0"]],
+    "HAMI": [["HH", "AE1", "M", "IY0"]],
+    "IELTS": [["AY1"], ["EH0", "L", "T", "S"]],
+}
+
 
 def g2p_token(token):
     if token in punctuation:
@@ -311,8 +317,11 @@ def g2p_token(token):
     # Uppercase A is a spelled letter (for example, OA), not the article "a".
     if token == "A":
         return ("ey",), (2,)
-    if token.upper() in eng_dict:
-        phns, tns = refine_syllables(eng_dict[token.upper()])
+    syllables = CUSTOM_EN_PRONUNCIATIONS.get(
+        token.upper(), eng_dict.get(token.upper())
+    )
+    if syllables is not None:
+        phns, tns = refine_syllables(syllables)
         return tuple(post_replace_ph(i) for i in phns), tuple(tns)
     phone_list = [p for p in _g2p(token) if p != " "]
     phns, tns = [], []
