@@ -742,3 +742,39 @@ def ensure_vits2_model(model_dir: str, family: str | None = None) -> str:
         entry,
     )
     return os.path.join(model_dir, "engines", key)
+
+
+# Matcha's current native build directories are deliberately absent here: they
+# are plan evidence, not runtime archives. Add a family only after the package
+# contains a signed archive and a complete runtime manifest.
+MATCHA_TRT_MODEL_BASE = os.environ.get("MATCHA_TRT_MODEL_BASE_URL", COS_BASE)
+MATCHA_TRT_MODEL_ARCHIVES: dict[str, dict] = {}
+
+
+def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
+    """Install and preflight a verified Matcha TensorRT release for this TRT.
+
+    The returned path is always ``engines/<runtime-family>``. Native build
+    output cannot bypass this boundary: archive integrity and the complete
+    Matcha release contract must both validate before an adapter can load plans.
+    """
+    from plugins.matcha_phonetone.trt_release import load_runtime_release
+
+    model_dir = require_models_subpath(model_dir)
+    key = select_bundle_family(MATCHA_TRT_MODEL_ARCHIVES, family)
+    entry = MATCHA_TRT_MODEL_ARCHIVES[key]
+    log.info(f"[model_downloader] matcha-trt: using {key} archive")
+    ensure_verified_archive(
+        f"matcha-trt/{key}",
+        model_dir,
+        f"{MATCHA_TRT_MODEL_BASE.rstrip('/')}/{entry['archive']}",
+        entry,
+    )
+    engine_dir = os.path.join(model_dir, "engines", key)
+    manifest = load_runtime_release(engine_dir)
+    if manifest["target"] != key:
+        raise RuntimeError(
+            f"Matcha TensorRT archive target mismatch: expected {key}, "
+            f"got {manifest['target']}"
+        )
+    return engine_dir
