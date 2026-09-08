@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from unidecode import unidecode
-
 from .token_vocabulary import TokenVocabulary
 from .wetext_compat import ensure_wetext_compat
 
@@ -151,6 +149,12 @@ def _english_backend():
 
 
 def _transliterate_non_cjk(text: str) -> str:
+    try:
+        from unidecode import unidecode
+    except ImportError as error:
+        if any(not ("\u4e00" <= char <= "\u9fff" or char.isascii() or char in PUNCTUATION_MAP) for char in text):
+            raise RuntimeError("unidecode is required for non-ASCII, non-CJK text") from error
+        unidecode = lambda value: value
     return "".join(PUNCTUATION_MAP.get(char, char if "\u4e00" <= char <= "\u9fff" or char.isascii() else unidecode(char)) for char in text)
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -173,8 +174,9 @@ TOOLS = [
                 # builds the config form from configSchema, so an engine that
                 # exists solely as a baked YAML key cannot be seen or switched
                 # without rebuilding the image. Mirrors asr_model in asr.py.
-                "tts_engine": {"type": "string", "enum": ["vits2_trt", "sherpa_onnx"],
+                "tts_engine": {"type": "string", "enum": ["vits2_trt", "matcha_trt", "sherpa_onnx"],
                                "description": "TTS engine (vits2_trt = VITS2 TensorRT on Jetson, "
+                                              "matcha_trt = Matcha PhoneTone TensorRT, "
                                               "sherpa_onnx = sherpa-onnx Matcha)",
                                "default": "vits2_trt", "scope": "shared"},
                 # sherpa_onnx only — vits2_trt is a TensorRT engine and never
@@ -475,16 +477,18 @@ class _TTSNode(Node):
                 buf = b''
                 t0 = None  # monotonic start of the pacing schedule
                 frames_sent = 0
+                delivered_bytes = 0
                 prebuf = []   # pre-buffer queue
 
                 def publish(frame: bytes) -> None:
-                    nonlocal frames_sent
+                    nonlocal delivered_bytes, frames_sent
                     msg = AudioChunk()
                     msg.header.stamp = self.get_clock().now().to_msg()
                     msg.format = "audio/pcm-16k"
                     msg.data = list(frame)
                     self._pub.publish(msg)
                     frames_sent += 1
+                    delivered_bytes += len(frame)
 
                 def emit(frame: bytes) -> None:
                     """Pace and publish one frame; latches the clock on the first."""
@@ -616,6 +620,10 @@ class _TTSNode(Node):
 
                 # 发布 EOF 标记：告知下游 Speaker 当前 utterance 已结束
                 self._publish_eof()
+                # Measured at the publisher boundary and excludes the EOF marker.
+                # The monitored harness compares this with ROS-collected PCM.
+                if os.environ.get("TTS_DELIVERY_METRICS") == "1":
+                    log.info("[tts] server delivery: bytes=%d", delivered_bytes)
                 # 上报 TTS perf spans（生成 + 播放）
                 try:
                     import json as _json
@@ -916,11 +924,12 @@ class SherpaOnnxTTSPlugin:
 
 
 DEFAULT_TTS_ENGINE = "vits2_trt"
-TTS_ENGINES = ("vits2_trt", "sherpa_onnx")
+TTS_ENGINES = ("vits2_trt", "matcha_trt", "sherpa_onnx")
 # Where each engine keeps its own model files. Used for any engine other than
 # the one config.yaml was written for; see TTSPlugin._model_dir_for.
 ENGINE_MODEL_DIRS = {
     "vits2_trt": "/models/vits2",
+    "matcha_trt": "/models/matcha-trt",
     "sherpa_onnx": "/models/sherpa-onnx/tts",
 }
 # How long an `action=config` engine switch waits for the new engine before
@@ -1010,8 +1019,12 @@ class TTSPlugin:
         cfg = dict(self._cfg)
         cfg["engine"] = engine
         cfg["model_dir"] = self._model_dir_for(engine)
-        impl = (self._build_vits2(cfg) if engine == "vits2_trt"
-                else SherpaOnnxTTSPlugin(cfg, self._executor))
+        if engine == "vits2_trt":
+            impl = self._build_vits2(cfg)
+        elif engine == "matcha_trt":
+            impl = self._build_matcha(cfg)
+        else:
+            impl = SherpaOnnxTTSPlugin(cfg, self._executor)
         # An implementation may swallow its own model-load failure and come back
         # as an object that reports error through info (sherpa does exactly
         # that). Installing it would make the facade claim ready and let a start
@@ -1028,6 +1041,11 @@ class TTSPlugin:
         from plugins.vits2_tts import Vits2TTSPlugin
 
         return Vits2TTSPlugin(cfg, self._executor)
+
+    def _build_matcha(self, cfg: dict):
+        from plugins.matcha_phonetone.plugin import MatchaTensorRTTTSPlugin
+
+        return MatchaTensorRTTTSPlugin(cfg, self._executor)
 
     def _build_async(self, engine: str) -> None:
         """Build an engine off the request thread; the old one is already gone."""

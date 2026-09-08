@@ -14,9 +14,13 @@ ARG PYPI_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple/
 ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG JP_VERSION=511
 ARG ENABLE_VITS2_TRT=1
+ARG MATCHA_TRT_MODEL_URL=
+ARG MATCHA_TRT_MODEL_SHA256=
+ARG MATCHA_TRT_MODEL_SIZE=
 
 FROM bj-warehouse.tencentcloudcr.com/phanthy-motus/jetson-base:jp${JP_VERSION}-torch
 ARG PYPI_MIRROR APT_MIRROR JP_VERSION ENABLE_VITS2_TRT
+ARG MATCHA_TRT_MODEL_URL MATCHA_TRT_MODEL_SHA256 MATCHA_TRT_MODEL_SIZE
 
 # ── Everything that differs per JetPack line, resolved once ──────────────────
 # These facts used to be restated at each point of use — the numpy pin appeared
@@ -403,6 +407,24 @@ COPY perception/plugins/   /work/plugins/
 COPY perception/utils/     /work/utils/
 COPY perception/config.yaml /work/config.yaml
 COPY perception/deploy/    /deploy/
+
+# Matcha engines are target-specific TensorRT releases, never loose plans.
+# The monitored launcher provides no archive input; this is the sole
+# installation boundary and requires a complete pinned runtime release.
+RUN set -eu; \
+    case "${JP_VERSION}" in \
+        511) MATCHA_TRT_MODEL_FAMILY=jp511 ;; \
+        61) MATCHA_TRT_MODEL_FAMILY=jp61 ;; \
+        *) echo "unsupported JP_VERSION=${JP_VERSION}; use 511 or 61" >&2; exit 2 ;; \
+    esac; \
+    test -n "${MATCHA_TRT_MODEL_URL}" || { \
+        echo "No verified Matcha runtime is configured for ${MATCHA_TRT_MODEL_FAMILY}" >&2; exit 2; \
+    }; \
+    MATCHA_TRT_MODEL_URL="${MATCHA_TRT_MODEL_URL}" \
+    MATCHA_TRT_MODEL_SHA256="${MATCHA_TRT_MODEL_SHA256}" \
+    MATCHA_TRT_MODEL_SIZE="${MATCHA_TRT_MODEL_SIZE}" \
+    MATCHA_TRT_MODEL_FAMILY="${MATCHA_TRT_MODEL_FAMILY}" \
+      python3 -c "from utils.model_downloader import ensure_matcha_trt_model; ensure_matcha_trt_model('/models/matcha-trt', '${MATCHA_TRT_MODEL_FAMILY}')"
 
 EXPOSE 15720
 EXPOSE 15721

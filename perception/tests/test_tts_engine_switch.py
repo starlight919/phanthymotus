@@ -79,7 +79,7 @@ class _Engines:
 
 @pytest.fixture(autouse=True)
 def _fake_engines(monkeypatch):
-    """Replace both real engines with fakes; sherpa's is deliberately slow."""
+    """Replace all real engines with fakes; sherpa's is deliberately slow."""
     engines = _Engines()
 
     # Patch the two engine constructors, not TTSPlugin._build: the facade's own
@@ -94,6 +94,10 @@ def _fake_engines(monkeypatch):
     monkeypatch.setattr(
         tts.TTSPlugin, "_build_vits2",
         lambda self, cfg: _FakeEngine("vits2_trt", cfg, self._executor, engines.add),
+    )
+    monkeypatch.setattr(
+        tts.TTSPlugin, "_build_matcha",
+        lambda self, cfg: _FakeEngine("matcha_trt", cfg, self._executor, engines.add),
     )
     return engines
 
@@ -291,6 +295,16 @@ def test_each_engine_gets_its_own_model_dir(_fake_engines):
     assert _wait_until(lambda: "sherpa_onnx" in _fake_engines)
     assert (_fake_engines["sherpa_onnx"].cfg["model_dir"]
             == tts.ENGINE_MODEL_DIRS["sherpa_onnx"])
+
+
+def test_matcha_trt_is_a_distinct_engine_with_its_own_model_dir(_fake_engines):
+    plugin = _plugin()
+
+    result = plugin.dispatch("tts", {"action": "config", "tts_engine": "matcha_trt"})
+
+    assert result == {"status": "configured", "engine": "matcha_trt"}
+    assert _fake_engines["matcha_trt"].cfg["model_dir"] == "/models/matcha-trt"
+    assert _fake_engines["matcha_trt"].cfg["engine"] == "matcha_trt"
 
 
 def test_configured_model_dir_follows_the_configured_engine(_fake_engines):

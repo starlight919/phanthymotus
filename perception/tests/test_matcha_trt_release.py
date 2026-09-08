@@ -35,7 +35,15 @@ def _release(tmp_path):
             "mel_normalization": {"kind": "matcha"},
             "frontend": {"sha256": "a" * 64},
             "solver_steps": 6,
-            "vocoder": {"name": "vocos"},
+            "vocoder": {
+                "name": "vocos",
+                "istft": {
+                    "n_fft": 1024,
+                    "hop_length": 256,
+                    "window": "hann_periodic",
+                    "padding": "same",
+                },
+            },
         },
         "engines": {
             "encoder": entry("encoder.plan"),
@@ -61,12 +69,39 @@ def test_matcha_downloader_has_no_plan_only_release(tmp_path, monkeypatch):
         model_downloader.ensure_matcha_trt_model(str(tmp_path), family="jp511")
 
 
+def test_matcha_build_release_requires_complete_pin(monkeypatch):
+    monkeypatch.setenv("MATCHA_TRT_MODEL_URL", "https://models.example/runtime.tar.gz")
+    monkeypatch.setenv("MATCHA_TRT_MODEL_SHA256", "a" * 64)
+    monkeypatch.setenv("MATCHA_TRT_MODEL_FAMILY", "jp511")
+    monkeypatch.delenv("MATCHA_TRT_MODEL_SIZE", raising=False)
+
+    with pytest.raises(RuntimeError, match="must be supplied together"):
+        model_downloader._matcha_trt_archives()
+
+
+def test_matcha_build_release_uses_complete_pin(monkeypatch):
+    monkeypatch.setenv("MATCHA_TRT_MODEL_URL", "https://models.example/runtime.tar.gz")
+    monkeypatch.setenv("MATCHA_TRT_MODEL_SHA256", "a" * 64)
+    monkeypatch.setenv("MATCHA_TRT_MODEL_SIZE", "123")
+    monkeypatch.setenv("MATCHA_TRT_MODEL_FAMILY", "jp511")
+
+    assert model_downloader._matcha_trt_archives() == {
+        "jp511": {
+            "url": "https://models.example/runtime.tar.gz",
+            "sha256": "a" * 64,
+            "size": 123,
+        }
+    }
+
+
 @pytest.mark.parametrize("mutate", [
     lambda release: release.update(release_status="built-unvalidated"),
     lambda release: release["engines"]["vocos"].update(sha256="0" * 64),
     lambda release: release["engines"]["vocos"].update(file="../vocos.plan"),
     lambda release: release["engines"]["vocos"].pop("bindings"),
     lambda release: release["contract"].pop("frontend"),
+    lambda release: release["contract"]["vocoder"].pop("istft"),
+    lambda release: release["contract"]["vocoder"]["istft"].update(padding="valid"),
     lambda release: release.update(tensorrt_major=10),
 ])
 def test_load_runtime_release_rejects_untrusted_or_incomplete_releases(tmp_path, mutate):

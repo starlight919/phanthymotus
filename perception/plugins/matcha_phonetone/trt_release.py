@@ -23,6 +23,7 @@ REQUIRED_CONTRACT_FIELDS = {
     "solver_steps",
     "vocoder",
 }
+VOCOS_ISTFT_FIELDS = {"n_fft", "hop_length", "window", "padding"}
 
 
 def load_runtime_release(engine_dir: str | Path) -> dict:
@@ -64,6 +65,7 @@ def _validate_manifest(root: Path, manifest: dict) -> None:
         raise ValueError("Matcha TensorRT contract requires a pinned frontend release")
     if not isinstance(contract["vocoder"], dict) or not contract["vocoder"].get("name"):
         raise ValueError("Matcha TensorRT contract requires a selected vocoder")
+    _validate_vocoder_contract(contract["vocoder"])
 
     engines = manifest.get("engines")
     if not isinstance(engines, dict):
@@ -73,6 +75,18 @@ def _validate_manifest(root: Path, manifest: dict) -> None:
         raise ValueError("Matcha TensorRT manifest engine set does not match its contract")
     for name, entry in engines.items():
         _validate_engine(root, name, entry)
+
+
+def _validate_vocoder_contract(vocoder: dict) -> None:
+    if vocoder["name"] != "vocos":
+        return
+    istft = vocoder.get("istft")
+    if not isinstance(istft, dict) or VOCOS_ISTFT_FIELDS - istft.keys():
+        raise ValueError("Vocos runtime requires a declared spectral/ISTFT contract")
+    if (istft["n_fft"], istft["hop_length"], istft["window"], istft["padding"]) != (
+        1024, 256, "hann_periodic", "same",
+    ):
+        raise ValueError("Unsupported Vocos ISTFT contract")
 
 
 def _validate_engine(root: Path, name: str, entry: object) -> None:

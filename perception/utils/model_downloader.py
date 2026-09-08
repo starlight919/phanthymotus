@@ -751,6 +751,42 @@ MATCHA_TRT_MODEL_BASE = os.environ.get("MATCHA_TRT_MODEL_BASE_URL", COS_BASE)
 MATCHA_TRT_MODEL_ARCHIVES: dict[str, dict] = {}
 
 
+def _matcha_trt_archives() -> dict[str, dict]:
+    """Return registered releases, or one explicitly pinned build release.
+
+    The Docker image is allowed to install a release before it is added to the
+    shared registry, but only when all integrity fields are supplied together.
+    This keeps a target-specific image build fail-closed while release
+    publication remains an explicit operation.
+    """
+    url = os.environ.get("MATCHA_TRT_MODEL_URL", "")
+    sha256 = os.environ.get("MATCHA_TRT_MODEL_SHA256", "")
+    size = os.environ.get("MATCHA_TRT_MODEL_SIZE", "")
+    family = os.environ.get("MATCHA_TRT_MODEL_FAMILY", "")
+    supplied = (url, sha256, size, family)
+    if any(supplied):
+        if not all(supplied):
+            raise RuntimeError(
+                "MATCHA_TRT_MODEL_URL, MATCHA_TRT_MODEL_SHA256, "
+                "MATCHA_TRT_MODEL_SIZE, and MATCHA_TRT_MODEL_FAMILY "
+                "must be supplied together"
+            )
+        try:
+            parsed_size = int(size)
+        except ValueError as error:
+            raise RuntimeError("MATCHA_TRT_MODEL_SIZE must be an integer") from error
+        if parsed_size <= 0:
+            raise RuntimeError("MATCHA_TRT_MODEL_SIZE must be positive")
+        return {
+            family: {
+                "url": url,
+                "size": parsed_size,
+                "sha256": sha256,
+            }
+        }
+    return MATCHA_TRT_MODEL_ARCHIVES
+
+
 def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
     """Install and preflight a verified Matcha TensorRT release for this TRT.
 
@@ -761,13 +797,17 @@ def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
     from plugins.matcha_phonetone.trt_release import load_runtime_release
 
     model_dir = require_models_subpath(model_dir)
-    key = select_bundle_family(MATCHA_TRT_MODEL_ARCHIVES, family)
-    entry = MATCHA_TRT_MODEL_ARCHIVES[key]
+    archives = _matcha_trt_archives()
+    key = select_bundle_family(archives, family)
+    entry = archives[key]
     log.info(f"[model_downloader] matcha-trt: using {key} archive")
+    archive_url = entry.get("url")
+    if not archive_url:
+        archive_url = f"{MATCHA_TRT_MODEL_BASE.rstrip('/')}/{entry['archive']}"
     ensure_verified_archive(
         f"matcha-trt/{key}",
         model_dir,
-        f"{MATCHA_TRT_MODEL_BASE.rstrip('/')}/{entry['archive']}",
+        archive_url,
         entry,
     )
     engine_dir = os.path.join(model_dir, "engines", key)
