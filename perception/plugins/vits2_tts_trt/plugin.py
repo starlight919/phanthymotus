@@ -316,7 +316,9 @@ class _Vits2TTSNode(Node):
 class TTSPlugin:
     """VITS2 TensorRT implementation exposed as an optional MCP tool."""
 
-    PREFIX = "vits2"
+    # Preserve the established public MCP tool name while selecting this
+    # implementation through DEFAULT_TTS_PLUGIN/config.
+    PREFIX = "tts"
 
     def __init__(self, plugin_cfg: dict, executor):
         self._cfg = dict(plugin_cfg)
