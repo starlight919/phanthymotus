@@ -63,6 +63,14 @@ def test_load_runtime_release_accepts_complete_verified_contract(tmp_path):
     assert load_runtime_release(tmp_path)["target"] == "jp511"
 
 
+def test_load_runtime_release_accepts_plan_ready_contract(tmp_path):
+    manifest = _release(tmp_path)
+    manifest["release_status"] = "plan-ready"
+    _write(tmp_path, manifest)
+
+    assert load_runtime_release(tmp_path)["release_status"] == "plan-ready"
+
+
 def test_matcha_downloader_has_no_plan_only_release(tmp_path, monkeypatch):
     monkeypatch.setattr(model_downloader, "require_models_subpath", lambda path: path)
     with pytest.raises(RuntimeError, match="No model bundle"):

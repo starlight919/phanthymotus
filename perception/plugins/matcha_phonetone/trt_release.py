@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 
 RUNTIME_SCHEMA_VERSION = 1
 RUNTIME_READY_STATUSES = {
+    "plan-ready",
     "runtime-ready",
     "framework-validated",
     "approved",
@@ -46,7 +47,7 @@ def _validate_manifest(root: Path, manifest: dict) -> None:
     if manifest.get("schema_version") != RUNTIME_SCHEMA_VERSION:
         raise ValueError("Unsupported Matcha TensorRT manifest schema_version")
     if manifest.get("release_status") not in RUNTIME_READY_STATUSES:
-        raise ValueError("Matcha TensorRT release is not runtime-ready")
+        raise ValueError("Matcha TensorRT release is neither plan-ready nor runtime-ready")
     target = manifest.get("target")
     if target not in TARGET_TRT_MAJORS:
         raise ValueError("Matcha TensorRT manifest has an unsupported target")

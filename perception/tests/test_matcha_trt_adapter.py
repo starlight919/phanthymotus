@@ -112,6 +112,22 @@ def test_stream_chunks_pcm_at_the_shared_transport_boundary(frontend):
     assert [len(chunk) for chunk in chunks] == [3 * 256 * 2]
 
 
+def test_synthesis_accepts_exported_solver_and_hifigan_aliases(frontend):
+    runtime = _runtime()
+    runtime.manifest["engines"]["solver_steps_3"]["bindings"]["outputs"] = ["mel_normalized"]
+    runtime.manifest["engines"]["hifigan"]["bindings"] = {
+        "inputs": ["mels"], "outputs": ["wav"],
+    }
+    runtime.solver.result = {"mel_normalized": np.ones((1, 80, 4), dtype=np.float32)}
+    runtime.vocoder.result = {"wav": np.zeros((1, 4 * 256), dtype=np.float32)}
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    pcm = adapter.synthesize("ignored")
+
+    assert len(pcm) == 3 * 256 * 2
+    assert runtime.vocoder.calls[0]["mels"].shape == (1, 80, 3)
+
+
 def test_binding_contract_rejects_an_incomplete_encoder():
     runtime = _runtime()
     runtime.manifest = _manifest(encoder_inputs=["x", "x_lengths", "tones"])

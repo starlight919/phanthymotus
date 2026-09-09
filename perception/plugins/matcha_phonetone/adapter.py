@@ -46,9 +46,8 @@ def _numpy_istft_same(mag: np.ndarray, x: np.ndarray, y: np.ndarray, *,
 class MatchaTensorRTAdapter(TTSAdapter):
     """Run the three-engine Matcha graph with only manifest-declared bindings.
 
-    The release must use the canonical named TensorRT contract. In particular, a
-    Vocos release requires a runtime implementation of its explicitly-declared
-    spectral/ISTFT contract and is rejected until that contract is available.
+    The release declares the TensorRT names it actually contains. Vocos still
+    requires its explicitly-declared spectral/ISTFT contract.
     """
 
     def __init__(self, engine_dir: str | Path, speed: float = 1.0, runtime=None):
@@ -62,9 +61,10 @@ class MatchaTensorRTAdapter(TTSAdapter):
     def _validate_bindings(self) -> None:
         engines = self._manifest["engines"]
         solver_name = f"solver_steps_{self._contract['solver_steps']}"
-        self._require_bindings(engines["encoder"], {"x", "x_lengths", "tones", "languages"},
-                               {"mu_x", "logw", "x_mask"})
-        self._require_bindings(engines[solver_name], {"noise", "mask", "mu"}, {"mel"})
+        self._require_named_bindings(engines["encoder"], {"x", "x_lengths", "tones", "languages"},
+                                     {"mu_x", "logw", "x_mask"})
+        self._require_named_bindings(engines[solver_name], {"noise", "mask", "mu"}, set())
+        self._require_output_alias(engines[solver_name], "mel", "mel_normalized")
         vocoder = self._contract["vocoder"]["name"]
         if vocoder == "vocos":
             istft = self._contract["vocoder"].get("istft")
@@ -72,20 +72,40 @@ class MatchaTensorRTAdapter(TTSAdapter):
                 raise ValueError("Vocos TensorRT runtime requires a declared spectral/ISTFT contract")
             if istft["padding"] != "same":
                 raise ValueError("unsupported Vocos ISTFT contract")
-            self._require_bindings(engines[vocoder], {"mel"}, {"mag", "x", "y"})
+            self._require_input_alias(engines[vocoder], "mel", "mels")
+            self._require_named_bindings(engines[vocoder], set(), {"mag", "x", "y"})
             return
-        self._require_bindings(engines[vocoder], {"mel"}, {"audio"})
+        self._require_input_alias(engines[vocoder], "mel", "mels")
+        self._require_output_alias(engines[vocoder], "audio", "wav")
 
     @staticmethod
-    def _require_bindings(entry: dict, inputs: set[str], outputs: set[str]) -> None:
+    def _require_named_bindings(entry: dict, inputs: set[str], outputs: set[str]) -> None:
         bindings = entry["bindings"]
         missing_inputs = inputs - set(bindings["inputs"])
         missing_outputs = outputs - set(bindings["outputs"])
         if missing_inputs or missing_outputs:
             raise ValueError(
-                "Matcha TensorRT engine lacks canonical bindings: "
+                "Matcha TensorRT engine lacks required bindings: "
                 f"inputs={sorted(missing_inputs)} outputs={sorted(missing_outputs)}"
             )
+
+    @staticmethod
+    def _require_input_alias(entry: dict, *candidates: str) -> None:
+        if not set(candidates).intersection(entry["bindings"]["inputs"]):
+            raise ValueError(f"Matcha TensorRT engine lacks input aliases: {candidates}")
+
+    @staticmethod
+    def _require_output_alias(entry: dict, *candidates: str) -> None:
+        if not set(candidates).intersection(entry["bindings"]["outputs"]):
+            raise ValueError(f"Matcha TensorRT engine lacks output aliases: {candidates}")
+
+    @staticmethod
+    def _binding_name(entry: dict, *candidates: str) -> str:
+        bindings = entry["bindings"]
+        for candidate in candidates:
+            if candidate in bindings["inputs"] or candidate in bindings["outputs"]:
+                return candidate
+        raise ValueError(f"Matcha TensorRT engine lacks binding aliases: {candidates}")
 
     def set_speed(self, speed: float) -> None:
         speed = float(speed)
@@ -113,14 +133,19 @@ class MatchaTensorRTAdapter(TTSAdapter):
                 encoded["mu_x"], encoded["logw"], encoded["x_mask"], 1.0 / self._speed
             )
             noise = np.zeros_like(regulated.mu, dtype=np.float32)
+            solver_entry = self._manifest["engines"][f"solver_steps_{self._contract['solver_steps']}"]
+            mel_name = self._binding_name(solver_entry, "mel", "mel_normalized")
             mel = self._runtime.solver.run({
                 "noise": noise,
                 "mask": regulated.mask,
                 "mu": regulated.mu,
-            })["mel"]
+            })[mel_name]
             valid_mel = mel[:, :, :regulated.valid_frames]
-            vocoder_outputs = self._runtime.vocoder.run({"mel": valid_mel})
-            if self._contract["vocoder"]["name"] == "vocos":
+            vocoder_name = self._contract["vocoder"]["name"]
+            vocoder_entry = self._manifest["engines"][vocoder_name]
+            vocoder_input = self._binding_name(vocoder_entry, "mel", "mels")
+            vocoder_outputs = self._runtime.vocoder.run({vocoder_input: valid_mel})
+            if vocoder_name == "vocos":
                 istft = self._contract["vocoder"]["istft"]
                 audio = _numpy_istft_same(
                     vocoder_outputs["mag"], vocoder_outputs["x"], vocoder_outputs["y"],
@@ -128,7 +153,7 @@ class MatchaTensorRTAdapter(TTSAdapter):
                     window=istft["window"],
                 )
             else:
-                audio = vocoder_outputs["audio"]
+                audio = vocoder_outputs[self._binding_name(vocoder_entry, "audio", "wav")]
             pcm = self._pcm16(audio, regulated.valid_frames)
         for offset in range(0, len(pcm), CHUNK_BYTES):
             yield pcm[offset:offset + CHUNK_BYTES]
