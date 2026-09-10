@@ -677,11 +677,17 @@ def _extract_verified_tar(archive: str, destination: str) -> None:
         members = handle.getmembers()
         if not members:
             raise RuntimeError(f"Empty archive: {archive}")
+        extract_members = []
         for member in members:
             if not (member.isfile() or member.isdir()):
                 raise ValueError(f"Unsupported archive entry: {member.name}")
+            if member.name in ("", "."):
+                continue
             _check_bundle_relpath(member.name)
-        handle.extractall(destination, members=members)
+            extract_members.append(member)
+        if not extract_members:
+            raise RuntimeError(f"Empty archive: {archive}")
+        handle.extractall(destination, members=extract_members)
 
 
 def _merge_tree(source: str, destination: str) -> None:
