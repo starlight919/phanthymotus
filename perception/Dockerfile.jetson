@@ -410,6 +410,8 @@ COPY perception/deploy/    /deploy/
 
 # One image per JetPack target; the plugin installs the selected vocoder lazily.
 ENV MATCHA_TRT_VOCODER=hifigan
+# Runtime bundles mount the frozen frontend beside the target engines.
+ENV MATCHA_FRONTEND_RELEASE=/models/matcha-trt/frontend_release
 # Optional build-time preload requires all archive integrity fields.
 RUN set -eu; \
     if [ -n "${MATCHA_TRT_MODEL_URL}${MATCHA_TRT_MODEL_SHA256}${MATCHA_TRT_MODEL_SIZE}" ]; then \

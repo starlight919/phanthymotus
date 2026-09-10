@@ -29,6 +29,7 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _TOKEN_RE = re.compile(r"[\u4e00-\u9fff]+|[A-Za-z]+(?:['-][A-Za-z]+)*|[!?…,.'-]")
 _ARPA_RE = re.compile(r"^([A-Z]+)([012])?$")
 _INITIALS = ("zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w")
+_configured_release: Path | None = None
 
 @dataclass(frozen=True)
 class PhoneToneResult:
@@ -44,7 +45,16 @@ class PhoneToneResult:
 
 
 def _release_root() -> Path:
+    if _configured_release is not None:
+        return _configured_release
     return Path(os.environ.get("MATCHA_FRONTEND_RELEASE", Path(__file__).parents[2] / "frontend_release"))
+
+
+def configure_release_paths(root: Path) -> None:
+    """Bind the frontend to the frozen release paired with the engine."""
+    global _configured_release
+    _configured_release = root.resolve()
+    _assets.cache_clear()
 
 
 @lru_cache(maxsize=1)

@@ -9,7 +9,7 @@ import numpy as np
 
 from plugins.tts import CHUNK_BYTES, TTSAdapter
 
-from .frontend import prepare_phonetone
+from . import frontend
 from .trt_runtime import HOP_LENGTH, SAMPLE_RATE, MatchaTensorRTRuntime, intersperse, regulate_encoder
 
 
@@ -55,6 +55,7 @@ class MatchaTensorRTAdapter(TTSAdapter):
         self._runtime = runtime or MatchaTensorRTRuntime(engine_dir)
         self._manifest = self._runtime.manifest
         self._contract = self._manifest["contract"]
+        frontend.configure_release_paths(Path(engine_dir).resolve().parent.parent / "frontend_release")
         self.set_speed(speed)
         self._validate_bindings()
 
@@ -118,10 +119,10 @@ class MatchaTensorRTAdapter(TTSAdapter):
 
     def synthesize_stream(self, text: str):
         with self._lock:
-            frontend = prepare_phonetone(text)
-            x = intersperse(frontend.phone_ids)[None, :]
-            tones = intersperse(frontend.tone_ids)[None, :]
-            languages = intersperse(frontend.language_ids)[None, :]
+            prepared = frontend.prepare_phonetone(text)
+            x = intersperse(prepared.phone_ids)[None, :]
+            tones = intersperse(prepared.tone_ids)[None, :]
+            languages = intersperse(prepared.language_ids)[None, :]
             x_lengths = np.asarray([x.shape[1]], dtype=np.int64)
             encoded = self._runtime.encoder.run({
                 "x": x,
