@@ -128,6 +128,17 @@ def test_synthesis_accepts_exported_solver_and_hifigan_aliases(frontend):
     assert runtime.vocoder.calls[0]["mels"].shape == (1, 80, 3)
 
 
+def test_bigvgan_uses_direct_waveform_contract(frontend):
+    runtime = _runtime("bigvgan")
+    runtime.vocoder.result = {"audio": np.zeros((1, 4 * 256), dtype=np.float32)}
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    pcm = adapter.synthesize("ignored")
+
+    assert len(pcm) == 3 * 256 * 2
+    assert runtime.vocoder.calls[0]["mel"].shape == (1, 80, 3)
+
+
 def test_binding_contract_rejects_an_incomplete_encoder():
     runtime = _runtime()
     runtime.manifest = _manifest(encoder_inputs=["x", "x_lengths", "tones"])

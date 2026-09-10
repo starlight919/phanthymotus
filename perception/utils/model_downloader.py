@@ -744,11 +744,23 @@ def ensure_vits2_model(model_dir: str, family: str | None = None) -> str:
     return os.path.join(model_dir, "engines", key)
 
 
-# Matcha's current native build directories are deliberately absent here: they
-# are plan evidence, not runtime archives. Add a family only after the package
-# contains a signed archive and a complete runtime manifest.
-MATCHA_TRT_MODEL_BASE = os.environ.get("MATCHA_TRT_MODEL_BASE_URL", COS_BASE)
-MATCHA_TRT_MODEL_ARCHIVES: dict[str, dict] = {}
+# Plan-ready runtime archives, pinned independently for each target and vocoder.
+MATCHA_TRT_MODEL_BASE = os.environ.get(
+    "MATCHA_TRT_MODEL_BASE_URL",
+    "http://172.28.4.81:34567/liaoqianqian/models/matcha-phonetone",
+)
+MATCHA_TRT_MODEL_ARCHIVES = {
+    "jp511": {
+        "hifigan": {"sha256": "cec54e2ef9c38e4b9798c164b9f1e2de3632f32704a4b7b6fb76368ceb44886b", "size": 170325478},
+        "vocos": {"sha256": "e823dfb0d446072ac3230397efb9014a59264c20989ed2cbbc5b5920532e6fd7", "size": 131781096},
+        "bigvgan": {"sha256": "95323d8521eb65e911ffb16794f68d935fafa72594ae86e2d00e4ae667e11556", "size": 165973462},
+    },
+    "jp61": {
+        "hifigan": {"sha256": "c2f6139612dfb0d41160baff0f0022029ff7b43b217d5915e7bf835b75cbc46a", "size": 131930906},
+        "vocos": {"sha256": "ba8210daa4be31fcdf6cff9c56d6b1ce8d84c30fe7a4f9a875e0c1bb34ad404f", "size": 93403114},
+        "bigvgan": {"sha256": "8d0e29357716527d2006de49b1d24644bd558c9cde44efea998d7d2150f7076e", "size": 127448940},
+    },
+}
 
 
 def _matcha_trt_archives() -> dict[str, dict]:
@@ -784,7 +796,17 @@ def _matcha_trt_archives() -> dict[str, dict]:
                 "sha256": sha256,
             }
         }
-    return MATCHA_TRT_MODEL_ARCHIVES
+    vocoder = os.environ.get("MATCHA_TRT_VOCODER", "hifigan")
+    if vocoder not in ("hifigan", "vocos", "bigvgan"):
+        raise ValueError(f"Unknown MATCHA_TRT_VOCODER: {vocoder!r}")
+    return {
+        target: {
+            **variants[vocoder],
+            "archive": f"matcha-trt-{target}-{vocoder}-plan-ready.tar.gz",
+            "vocoder": vocoder,
+        }
+        for target, variants in MATCHA_TRT_MODEL_ARCHIVES.items()
+    }
 
 
 def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
@@ -800,7 +822,11 @@ def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
     archives = _matcha_trt_archives()
     key = select_bundle_family(archives, family)
     entry = archives[key]
-    log.info(f"[model_downloader] matcha-trt: using {key} archive")
+    vocoder = entry.get("vocoder")
+    if vocoder is not None:
+        # Distinct trees prevent one vocoder's marker from trusting another's plans.
+        model_dir = require_models_subpath(os.path.join(model_dir, key, vocoder))
+    log.info(f"[model_downloader] matcha-trt: using {key}/{vocoder or 'override'} archive")
     archive_url = entry.get("url")
     if not archive_url:
         archive_url = f"{MATCHA_TRT_MODEL_BASE.rstrip('/')}/{entry['archive']}"
@@ -816,5 +842,10 @@ def ensure_matcha_trt_model(model_dir: str, family: str | None = None) -> str:
         raise RuntimeError(
             f"Matcha TensorRT archive target mismatch: expected {key}, "
             f"got {manifest['target']}"
+        )
+    if vocoder is not None and manifest["contract"]["vocoder"]["name"] != vocoder:
+        raise RuntimeError(
+            f"Matcha TensorRT archive vocoder mismatch: expected {vocoder}, "
+            f"got {manifest['contract']['vocoder']['name']}"
         )
     return engine_dir

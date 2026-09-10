@@ -408,23 +408,27 @@ COPY perception/utils/     /work/utils/
 COPY perception/config.yaml /work/config.yaml
 COPY perception/deploy/    /deploy/
 
-# Matcha engines are target-specific TensorRT releases, never loose plans.
-# The monitored launcher provides no archive input; this is the sole
-# installation boundary and requires a complete pinned runtime release.
+# One image per JetPack target; the plugin installs the selected vocoder lazily.
+ENV MATCHA_TRT_VOCODER=hifigan
+# Optional build-time preload requires all archive integrity fields.
 RUN set -eu; \
+    if [ -n "${MATCHA_TRT_MODEL_URL}${MATCHA_TRT_MODEL_SHA256}${MATCHA_TRT_MODEL_SIZE}" ]; then \
     case "${JP_VERSION}" in \
         511) MATCHA_TRT_MODEL_FAMILY=jp511 ;; \
         61) MATCHA_TRT_MODEL_FAMILY=jp61 ;; \
         *) echo "unsupported JP_VERSION=${JP_VERSION}; use 511 or 61" >&2; exit 2 ;; \
     esac; \
-    test -n "${MATCHA_TRT_MODEL_URL}" || { \
-        echo "No verified Matcha runtime is configured for ${MATCHA_TRT_MODEL_FAMILY}" >&2; exit 2; \
+    test -n "${MATCHA_TRT_MODEL_URL}" && \
+    test -n "${MATCHA_TRT_MODEL_SHA256}" && \
+    test -n "${MATCHA_TRT_MODEL_SIZE}" || { \
+        echo "Matcha preload requires MODEL_URL, MODEL_SHA256, and MODEL_SIZE" >&2; exit 2; \
     }; \
     MATCHA_TRT_MODEL_URL="${MATCHA_TRT_MODEL_URL}" \
     MATCHA_TRT_MODEL_SHA256="${MATCHA_TRT_MODEL_SHA256}" \
     MATCHA_TRT_MODEL_SIZE="${MATCHA_TRT_MODEL_SIZE}" \
     MATCHA_TRT_MODEL_FAMILY="${MATCHA_TRT_MODEL_FAMILY}" \
-      python3 -c "from utils.model_downloader import ensure_matcha_trt_model; ensure_matcha_trt_model('/models/matcha-trt', '${MATCHA_TRT_MODEL_FAMILY}')"
+      python3 -c "from utils.model_downloader import ensure_matcha_trt_model; ensure_matcha_trt_model('/models/matcha-trt', '${MATCHA_TRT_MODEL_FAMILY}')"; \
+    fi
 
 EXPOSE 15720
 EXPOSE 15721

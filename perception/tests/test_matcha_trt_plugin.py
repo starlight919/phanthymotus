@@ -99,6 +99,35 @@ def test_stop_disposes_nodes_but_keeps_the_resident_runtime(plugin):
     assert adapter.closed is False
 
 
+@pytest.mark.parametrize("vocoder", ["hifigan", "vocos", "bigvgan"])
+def test_lazy_installer_selects_runtime_vocoder(monkeypatch, tmp_path, vocoder):
+    import utils.model_downloader as downloader
+    import plugins.matcha_phonetone.trt_release as release_module
+    import utils.tensorrt_runtime as runtime
+
+    for key in ("URL", "SHA256", "SIZE", "FAMILY"):
+        monkeypatch.delenv(f"MATCHA_TRT_MODEL_{key}", raising=False)
+    monkeypatch.setenv("MATCHA_TRT_VOCODER", vocoder)
+    monkeypatch.setattr(runtime, "tensorrt_family", lambda: "jp61")
+    monkeypatch.setattr(downloader, "require_models_subpath", lambda path: path)
+    installs = []
+    monkeypatch.setattr(downloader, "ensure_verified_archive", lambda *args: installs.append(args))
+    monkeypatch.setattr(release_module, "load_runtime_release", lambda path: {
+        "target": "jp61", "contract": {"vocoder": {"name": vocoder}}
+    })
+    monkeypatch.setattr(plugin_module, "MatchaTensorRTAdapter", _Adapter)
+    instance = plugin_module.MatchaTensorRTTTSPlugin(
+        {"model_dir": str(tmp_path)}, _FakeExecutor()
+    )
+    instance.dispatch("tts", {"action": "info"})
+    assert installs == []
+    adapter = instance._ensure_adapter()
+    assert adapter.engine_dir == str(tmp_path / "jp61" / vocoder / "engines/jp61")
+    assert instance._ensure_adapter() is adapter
+    assert len(installs) == 1
+    assert installs[0][3]["vocoder"] == vocoder
+
+
 def test_model_load_failure_is_reported_without_creating_a_node(monkeypatch):
     import utils.model_downloader as downloader
 
