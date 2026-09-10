@@ -379,8 +379,10 @@ def _check_bundle_relpath(filename: str) -> None:
         raise ValueError(f"Invalid model filename: {filename!r}")
     if filename.startswith("/") or "\\" in filename:
         raise ValueError(f"Invalid model filename: {filename!r}")
+    while filename.startswith("./"):
+        filename = filename[2:]
     parts = filename.split("/")
-    if any(part in ("", ".", "..") for part in parts):
+    if not filename or any(part in ("", ".", "..") for part in parts):
         raise ValueError(f"Invalid model filename: {filename!r}")
 
 
