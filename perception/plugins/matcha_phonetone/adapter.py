@@ -212,7 +212,7 @@ class MatchaTensorRTAdapter(TTSAdapter):
                 raise _MelProfileLimit(
                     f"predicted mel requires {regulated.valid_frames} frames; TensorRT limit is {solver_limit}"
                 )
-            noise = np.zeros_like(regulated.mu, dtype=np.float32)
+            noise = np.random.normal(0.0, 0.667, size=regulated.mu.shape).astype(np.float32)
             mel_name = self._binding_name(solver_entry, "mel", "mel_normalized")
             mel = self._runtime.solver.run({
                 "noise": self._fit_static_input(noise, solver_entry, "noise"),

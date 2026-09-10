@@ -96,7 +96,9 @@ def test_synthesis_uses_named_bindings_and_matcha_blanks(frontend):
     np.testing.assert_array_equal(encoded["tones"], [[0, 1, 0, 2, 0, 3, 0]])
     np.testing.assert_array_equal(encoded["languages"], [[0, 4, 0, 5, 0, 6, 0]])
     assert runtime.solver.calls[0]["noise"].shape == (1, 80, 4)
-    assert np.all(runtime.solver.calls[0]["noise"] == 0)
+    assert runtime.solver.calls[0]["noise"].dtype == np.float32
+    assert np.isfinite(runtime.solver.calls[0]["noise"]).all()
+    assert np.any(runtime.solver.calls[0]["noise"] != 0)
     assert runtime.vocoder.calls[0]["mel"].shape == (1, 80, 3)
     samples = np.frombuffer(pcm, dtype="<i2")
     assert samples[0] == -32767
