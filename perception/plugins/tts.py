@@ -47,6 +47,8 @@ if FRAME_INTERVAL_S > PCM_FRAME_S:
     )
 # Depth of the synthesis→publish handoff queue, in frames (20s of audio).
 SYNTH_QUEUE_FRAMES = 200
+# BEST_EFFORT/VOLATILE does not replay frames published before discovery.
+SUBSCRIBER_WAIT_S = max(0.0, float(os.environ.get('TTS_SUBSCRIBER_WAIT_MS', '5000')) / 1000.0)
 
 # Sentinel closing the synthesis→publish queue. A dedicated object rather than
 # None so a genuinely empty frame could never be mistaken for end-of-stream.
@@ -493,6 +495,13 @@ class _TTSNode(Node):
                 def emit(frame: bytes) -> None:
                     """Pace and publish one frame; latches the clock on the first."""
                     nonlocal t0, t0_wall
+                    if frames_sent == 0 and SUBSCRIBER_WAIT_S:
+                        deadline = _time.monotonic() + SUBSCRIBER_WAIT_S
+                        while (self.count_subscribers(self._output_topic) == 0
+                               and _time.monotonic() < deadline
+                               and not self._stop_event.is_set()
+                               and not self._interrupt_flag.is_set()):
+                            _time.sleep(0.01)
                     if t0 is None:
                         # Backdate by the frames already in the prebuffer so all
                         # of them are due in the past and go out in one burst —
