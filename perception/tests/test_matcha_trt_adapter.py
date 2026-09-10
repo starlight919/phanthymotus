@@ -77,7 +77,7 @@ def frontend(monkeypatch):
     result = SimpleNamespace(
         phone_ids=(3, 7, 11), tone_ids=(1, 2, 3), language_ids=(4, 5, 6)
     )
-    monkeypatch.setattr(adapter_module, "prepare_phonetone", lambda text: result)
+    monkeypatch.setattr(adapter_module.frontend, "prepare_phonetone", lambda text: result)
     return result
 
 
@@ -100,6 +100,28 @@ def test_synthesis_uses_named_bindings_and_matcha_blanks(frontend):
     samples = np.frombuffer(pcm, dtype="<i2")
     assert samples[0] == -32767
     assert samples.max() <= 32767 and samples.min() >= -32767
+
+
+def test_static_engines_receive_padded_inputs_with_real_text_length(frontend):
+    runtime = _runtime()
+    for engine, inputs in (("encoder", ("x", "tones", "languages")),
+                           ("solver_steps_3", ("noise", "mask", "mu")),
+                           ("hifigan", ("mel",))):
+        runtime.manifest["engines"][engine]["bindings"]["inputs"] = {
+            name: {"dtype": "float32", "shape": [1, 64] if name in ("x", "tones", "languages") else [1, 80, 64]}
+            for name in inputs
+        }
+    runtime.manifest["engines"]["encoder"]["bindings"]["inputs"]["x_lengths"] = {
+        "dtype": "int64", "shape": [1]
+    }
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    adapter.synthesize("ignored")
+
+    assert runtime.encoder.calls[0]["x"].shape == (1, 64)
+    np.testing.assert_array_equal(runtime.encoder.calls[0]["x_lengths"], [7])
+    assert runtime.solver.calls[0]["mu"].shape == (1, 80, 64)
+    assert runtime.vocoder.calls[0]["mel"].shape == (1, 80, 64)
 
 
 def test_stream_chunks_pcm_at_the_shared_transport_boundary(frontend):

@@ -108,6 +108,19 @@ class MatchaTensorRTAdapter(TTSAdapter):
                 return candidate
         raise ValueError(f"Matcha TensorRT engine lacks binding aliases: {candidates}")
 
+    @staticmethod
+    def _fit_static_input(value: np.ndarray, entry: dict, name: str) -> np.ndarray:
+        bindings = entry["bindings"]["inputs"]
+        if not isinstance(bindings, dict):  # Legacy test/runtime manifests had names only.
+            return value
+        binding = bindings[name]
+        target = int(binding["shape"][-1])
+        if value.shape[-1] > target:
+            raise ValueError(
+                f"{name} requires {value.shape[-1]} values; TensorRT engine limit is {target}"
+            )
+        return np.pad(value, [(0, 0)] * (value.ndim - 1) + [(0, target - value.shape[-1])])
+
     def set_speed(self, speed: float) -> None:
         speed = float(speed)
         if not 0 < speed <= 4:
@@ -124,11 +137,12 @@ class MatchaTensorRTAdapter(TTSAdapter):
             tones = intersperse(prepared.tone_ids)[None, :]
             languages = intersperse(prepared.language_ids)[None, :]
             x_lengths = np.asarray([x.shape[1]], dtype=np.int64)
+            encoder_entry = self._manifest["engines"]["encoder"]
             encoded = self._runtime.encoder.run({
-                "x": x,
+                "x": self._fit_static_input(x, encoder_entry, "x"),
                 "x_lengths": x_lengths,
-                "tones": tones,
-                "languages": languages,
+                "tones": self._fit_static_input(tones, encoder_entry, "tones"),
+                "languages": self._fit_static_input(languages, encoder_entry, "languages"),
             })
             regulated = regulate_encoder(
                 encoded["mu_x"], encoded["logw"], encoded["x_mask"], 1.0 / self._speed
@@ -137,15 +151,17 @@ class MatchaTensorRTAdapter(TTSAdapter):
             solver_entry = self._manifest["engines"][f"solver_steps_{self._contract['solver_steps']}"]
             mel_name = self._binding_name(solver_entry, "mel", "mel_normalized")
             mel = self._runtime.solver.run({
-                "noise": noise,
-                "mask": regulated.mask,
-                "mu": regulated.mu,
+                "noise": self._fit_static_input(noise, solver_entry, "noise"),
+                "mask": self._fit_static_input(regulated.mask, solver_entry, "mask"),
+                "mu": self._fit_static_input(regulated.mu, solver_entry, "mu"),
             })[mel_name]
             valid_mel = mel[:, :, :regulated.valid_frames]
             vocoder_name = self._contract["vocoder"]["name"]
             vocoder_entry = self._manifest["engines"][vocoder_name]
             vocoder_input = self._binding_name(vocoder_entry, "mel", "mels")
-            vocoder_outputs = self._runtime.vocoder.run({vocoder_input: valid_mel})
+            vocoder_outputs = self._runtime.vocoder.run({
+                vocoder_input: self._fit_static_input(valid_mel, vocoder_entry, vocoder_input)
+            })
             if vocoder_name == "vocos":
                 istft = self._contract["vocoder"]["istft"]
                 audio = _numpy_istft_same(
