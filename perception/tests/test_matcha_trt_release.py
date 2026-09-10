@@ -71,6 +71,33 @@ def test_load_runtime_release_accepts_plan_ready_contract(tmp_path):
     assert load_runtime_release(tmp_path)["release_status"] == "plan-ready"
 
 
+def test_schema_two_requires_ordered_profiles(tmp_path):
+    manifest = _release(tmp_path)
+    manifest["schema_version"] = 2
+    manifest["contract"]["vocoder"].update({
+        "kind": "spectral_cpu_istft", "chunk_core_frames": 128,
+        "context_frames": 16, "output_crop_policy": "spectral_then_global_istft",
+    })
+    for engine in manifest["engines"].values():
+        engine["profiles"] = {
+            name: {"min": [1, 80, 16], "opt": [1, 80, 128], "max": [1, 80, 512]}
+            for name, binding in engine["bindings"]["inputs"].items()
+            if len(binding["shape"]) == 3
+        }
+        engine["profiles"].update({
+            name: {"min": [1], "opt": [1], "max": [1]}
+            for name, binding in engine["bindings"]["inputs"].items()
+            if len(binding["shape"]) == 1
+        })
+    _write(tmp_path, manifest)
+    assert load_runtime_release(tmp_path)["schema_version"] == 2
+
+    next(iter(manifest["engines"].values()))["profiles"] = {}
+    _write(tmp_path, manifest)
+    with pytest.raises(ValueError, match="dynamic profiles"):
+        load_runtime_release(tmp_path)
+
+
 @pytest.fixture
 def matcha_registry_env(monkeypatch):
     for key in ("URL", "SHA256", "SIZE", "FAMILY"):

@@ -759,14 +759,14 @@ MATCHA_TRT_MODEL_BASE = os.environ.get(
 )
 MATCHA_TRT_MODEL_ARCHIVES = {
     "jp511": {
-        "hifigan": {"sha256": "cec54e2ef9c38e4b9798c164b9f1e2de3632f32704a4b7b6fb76368ceb44886b", "size": 170325478},
-        "vocos": {"sha256": "e823dfb0d446072ac3230397efb9014a59264c20989ed2cbbc5b5920532e6fd7", "size": 131781096},
-        "bigvgan": {"sha256": "95323d8521eb65e911ffb16794f68d935fafa72594ae86e2d00e4ae667e11556", "size": 165973462},
+        "hifigan": {"sha256": "e76bd2c6b649e1e00d27877eea90d6ea23db141a90699fe13aa5d982c7519ec1", "size": 173663504},
+        "vocos": {"sha256": "2f505605938b437909c2950251b4cdafe1db84dcb5e23d7f2c4cb40970371b33", "size": 135125041},
+        "bigvgan": {"sha256": "0612e552465b97119786e07195a9195ebfae691544e8386cefb0aec95defe2cf", "size": 169353192},
     },
     "jp61": {
-        "hifigan": {"sha256": "c2f6139612dfb0d41160baff0f0022029ff7b43b217d5915e7bf835b75cbc46a", "size": 131930906},
-        "vocos": {"sha256": "ba8210daa4be31fcdf6cff9c56d6b1ce8d84c30fe7a4f9a875e0c1bb34ad404f", "size": 93403114},
-        "bigvgan": {"sha256": "8d0e29357716527d2006de49b1d24644bd558c9cde44efea998d7d2150f7076e", "size": 127448940},
+        "hifigan": {"sha256": "42eae4d9f48461a1f9b384340e80b3d8a0db02ac1b900ff0e582301284304497", "size": 134268370},
+        "vocos": {"sha256": "226104d2bd7d666cce4a1a8851178c6b78daed8589502ba6a1e07a7537030cce", "size": 95784650},
+        "bigvgan": {"sha256": "d2e564807e810b479d52744e52976b584be8c050ad1419ecba83c02cbfceab54", "size": 129756841},
     },
 }
 

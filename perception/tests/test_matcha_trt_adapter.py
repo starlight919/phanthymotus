@@ -17,7 +17,7 @@ class _Session:
 
     def run(self, inputs):
         self.calls.append(inputs)
-        return self.result
+        return self.result(inputs) if callable(self.result) else self.result
 
 
 def _manifest(vocoder="hifigan", *, encoder_inputs=None):
@@ -77,7 +77,8 @@ def frontend(monkeypatch):
     result = SimpleNamespace(
         phone_ids=(3, 7, 11), tone_ids=(1, 2, 3), language_ids=(4, 5, 6)
     )
-    monkeypatch.setattr(adapter_module.frontend, "prepare_phonetone", lambda text: result)
+    monkeypatch.setattr(adapter_module.frontend, "normalize_text", lambda text: text)
+    monkeypatch.setattr(adapter_module.frontend, "prepare_phonetone", lambda text, **_kwargs: result)
     return result
 
 
@@ -213,3 +214,54 @@ def test_short_vocoder_output_is_rejected(frontend):
 
     with pytest.raises(RuntimeError, match="shorter"):
         adapter.synthesize("ignored")
+
+
+def test_dynamic_encoder_splits_only_after_profile_limit(monkeypatch):
+    runtime = _runtime()
+    encoder = runtime.manifest["engines"]["encoder"]
+    encoder["bindings"]["inputs"] = {
+        name: {"dtype": "int64", "shape": [1, -1] if name != "x_lengths" else [1]}
+        for name in ("x", "x_lengths", "tones", "languages")
+    }
+    encoder["profiles"] = {
+        name: {"min": [1, 1], "opt": [1, 5], "max": [1, 7]}
+        for name in ("x", "tones", "languages")
+    }
+    encoder["profiles"]["x_lengths"] = {"min": [1], "opt": [1], "max": [1]}
+    monkeypatch.setattr(adapter_module.frontend, "normalize_text", lambda text: text)
+    monkeypatch.setattr(adapter_module.frontend, "prepare_phonetone", lambda text, **_kwargs:
+                        SimpleNamespace(phone_ids=tuple(range(len(text))),
+                                        tone_ids=(0,) * len(text), language_ids=(0,) * len(text)))
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    adapter.synthesize("abcdef")
+
+    assert len(runtime.encoder.calls) == 2
+    assert all(call["x"].shape[-1] <= 7 for call in runtime.encoder.calls)
+
+
+def test_direct_vocoder_chunks_with_context_and_crops_exact_pcm(frontend):
+    runtime = _runtime("bigvgan")
+    runtime.manifest["contract"]["vocoder"].update(
+        chunk_core_frames=64, context_frames=32
+    )
+    solver = runtime.manifest["engines"]["solver_steps_3"]
+    solver["profiles"] = {
+        name: {"min": [1, channels, 16], "opt": [1, channels, 128], "max": [1, channels, 512]}
+        for name, channels in (("noise", 80), ("mask", 1), ("mu", 80))
+    }
+    vocoder = runtime.manifest["engines"]["bigvgan"]
+    vocoder["profiles"] = {
+        "mel": {"min": [1, 80, 16], "opt": [1, 80, 128], "max": [1, 80, 512]}
+    }
+    runtime.encoder.result["logw"][:] = np.log(100.0)
+    runtime.solver.result = lambda inputs: {"mel": np.ones_like(inputs["mu"])}
+    runtime.vocoder.result = lambda inputs: {
+        "audio": np.zeros((1, inputs["mel"].shape[-1] * 256), dtype=np.float32)
+    }
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    pcm = adapter.synthesize("ignored")
+
+    assert len(runtime.vocoder.calls) == 5
+    assert len(pcm) == 300 * 256 * 2

@@ -7,7 +7,7 @@ import json
 from pathlib import Path, PurePosixPath
 
 
-RUNTIME_SCHEMA_VERSION = 1
+RUNTIME_SCHEMA_VERSIONS = {1, 2}
 RUNTIME_READY_STATUSES = {
     "plan-ready",
     "runtime-ready",
@@ -44,7 +44,8 @@ def load_runtime_release(engine_dir: str | Path) -> dict:
 def _validate_manifest(root: Path, manifest: dict) -> None:
     if not isinstance(manifest, dict):
         raise ValueError("Matcha TensorRT manifest must be an object")
-    if manifest.get("schema_version") != RUNTIME_SCHEMA_VERSION:
+    schema_version = manifest.get("schema_version")
+    if schema_version not in RUNTIME_SCHEMA_VERSIONS:
         raise ValueError("Unsupported Matcha TensorRT manifest schema_version")
     if manifest.get("release_status") not in RUNTIME_READY_STATUSES:
         raise ValueError("Matcha TensorRT release is neither plan-ready nor runtime-ready")
@@ -66,7 +67,7 @@ def _validate_manifest(root: Path, manifest: dict) -> None:
         raise ValueError("Matcha TensorRT contract requires a pinned frontend release")
     if not isinstance(contract["vocoder"], dict) or not contract["vocoder"].get("name"):
         raise ValueError("Matcha TensorRT contract requires a selected vocoder")
-    _validate_vocoder_contract(contract["vocoder"])
+    _validate_vocoder_contract(contract["vocoder"], require_chunking=schema_version == 2)
 
     engines = manifest.get("engines")
     if not isinstance(engines, dict):
@@ -75,10 +76,18 @@ def _validate_manifest(root: Path, manifest: dict) -> None:
     if set(engines) != required:
         raise ValueError("Matcha TensorRT manifest engine set does not match its contract")
     for name, entry in engines.items():
-        _validate_engine(root, name, entry)
+        _validate_engine(root, name, entry, require_profiles=schema_version == 2)
 
 
-def _validate_vocoder_contract(vocoder: dict) -> None:
+def _validate_vocoder_contract(vocoder: dict, *, require_chunking: bool) -> None:
+    if require_chunking:
+        expected_kind = "spectral_cpu_istft" if vocoder["name"] == "vocos" else "direct_waveform"
+        if vocoder.get("kind") != expected_kind:
+            raise ValueError("Vocoder runtime kind does not match its engine")
+        if type(vocoder.get("chunk_core_frames")) is not int or vocoder["chunk_core_frames"] <= 0:
+            raise ValueError("Vocoder requires positive chunk_core_frames")
+        if type(vocoder.get("context_frames")) is not int or vocoder["context_frames"] < 0:
+            raise ValueError("Vocoder requires non-negative context_frames")
     if vocoder["name"] != "vocos":
         return
     istft = vocoder.get("istft")
@@ -90,7 +99,7 @@ def _validate_vocoder_contract(vocoder: dict) -> None:
         raise ValueError("Unsupported Vocos ISTFT contract")
 
 
-def _validate_engine(root: Path, name: str, entry: object) -> None:
+def _validate_engine(root: Path, name: str, entry: object, *, require_profiles: bool) -> None:
     if not isinstance(entry, dict):
         raise ValueError(f"Invalid engine entry: {name}")
     file_name = entry.get("file")
@@ -109,6 +118,22 @@ def _validate_engine(root: Path, name: str, entry: object) -> None:
         values = bindings[direction]
         if not isinstance(values, dict) or not all(_valid_binding(v) for v in values.values()):
             raise ValueError(f"Invalid {direction} contract: {name}")
+    if require_profiles:
+        profiles = entry.get("profiles")
+        if not isinstance(profiles, dict) or set(profiles) != set(bindings["inputs"]):
+            raise ValueError(f"Incomplete dynamic profiles: {name}")
+        for tensor, bounds in profiles.items():
+            if set(bounds) != {"min", "opt", "max"}:
+                raise ValueError(f"Invalid dynamic profile bounds: {name}/{tensor}")
+            if any(not isinstance(shape, list) for shape in bounds.values()):
+                raise ValueError(f"Invalid dynamic profile shape: {name}/{tensor}")
+            rank = len(bindings["inputs"][tensor]["shape"])
+            if any(len(shape) != rank or any(type(value) is not int or value <= 0 for value in shape)
+                   for shape in bounds.values()):
+                raise ValueError(f"Invalid dynamic profile dimensions: {name}/{tensor}")
+            if any(not low <= opt <= high for low, opt, high in zip(
+                    bounds["min"], bounds["opt"], bounds["max"])):
+                raise ValueError(f"Unordered dynamic profile: {name}/{tensor}")
     path = root / file_name
     if not path.is_file() or path.stat().st_size != size:
         raise ValueError(f"Engine file size mismatch: {name}")
