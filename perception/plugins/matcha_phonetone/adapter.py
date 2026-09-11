@@ -219,6 +219,18 @@ class MatchaTensorRTAdapter(TTSAdapter):
                 "mask": self._fit_static_input(regulated.mask, solver_entry, "mask"),
                 "mu": self._fit_static_input(regulated.mu, solver_entry, "mu"),
             })[mel_name]
+            # The solver predicts Matcha's normalized decoder output.  The
+            # vocoders were trained/exported against the denormalized log-Mel
+            # returned by MatchaTTS.synthesise; feeding normalized values makes
+            # every vocoder produce unusable audio.
+            normalization = self._contract.get("mel_normalization") or {}
+            if normalization and normalization.get("kind") != "matcha":
+                raise ValueError("unsupported Matcha mel normalization contract")
+            mean = float(normalization.get("mean", -4.829741954803467))
+            std = float(normalization.get("std", 2.3564250469207764))
+            if not np.isfinite(mean) or not np.isfinite(std) or std <= 0:
+                raise ValueError("invalid Matcha mel normalization contract")
+            mel = np.asarray(mel, dtype=np.float32) * std + mean
             valid_mel = mel[:, :, :regulated.valid_frames]
             vocoder_name = self._contract["vocoder"]["name"]
             vocoder_entry = self._manifest["engines"][vocoder_name]

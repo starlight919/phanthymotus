@@ -105,6 +105,18 @@ def test_synthesis_uses_named_bindings_and_matcha_blanks(frontend):
     assert samples.max() <= 32767 and samples.min() >= -32767
 
 
+def test_solver_mel_is_denormalized_before_vocoder(frontend):
+    runtime = _runtime()
+    runtime.manifest["contract"]["mel_normalization"] = {
+        "kind": "matcha", "mean": -4.0, "std": 2.0
+    }
+    adapter = MatchaTensorRTAdapter("unused", runtime=runtime)
+
+    adapter.synthesize("ignored")
+
+    np.testing.assert_allclose(runtime.vocoder.calls[0]["mel"], -2.0)
+
+
 def test_static_engines_receive_padded_inputs_with_real_text_length(frontend):
     runtime = _runtime()
     for engine, inputs in (("encoder", ("x", "tones", "languages")),
