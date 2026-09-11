@@ -32,13 +32,16 @@ PCM_FRAME_S = CHUNK_BYTES / (SAMPLE_RATE * 2)  # 0.1s of audio per frame
 # vits2_tts_trt engine's MIX_VITS_PREBUFFER_FRAMES default. This — not the pacing
 # interval — is where the downstream margin comes from.
 PREBUF_FRAMES = 5
-# Pace at exactly the audio each frame carries. Anything shorter over-delivers
-# forever, and over-delivery has no safe landing on a live consumer: it either
-# buffers without bound or has to discard audio. Briefly setting this to 0.07s
-# (matching what the vits2 engine then did) accrued 30ms of surplus per frame
-# until the browser player hit its lead cap, rewound its own schedule into audio
-# it had already queued, and played back overlapped and 1.43x too fast.
-FRAME_INTERVAL_S = PCM_FRAME_S
+# Production paces at realtime. The monitored benchmark may explicitly opt into
+# fast delivery so generation RTF is not hidden by the transport clock.
+try:
+    FRAME_INTERVAL_S = max(0.0, float(os.environ.get('TTS_FRAME_INTERVAL_MS', '70')) / 1000.0)
+except ValueError:
+    FRAME_INTERVAL_S = PCM_FRAME_S
+FAST_DELIVERY = os.environ.get('TTS_ALLOW_FAST_DELIVERY', '1') == '1'
+if FRAME_INTERVAL_S < PCM_FRAME_S and not FAST_DELIVERY:
+    log.warning('[tts] fast frame interval disabled for live delivery; using %.3fs', PCM_FRAME_S)
+    FRAME_INTERVAL_S = PCM_FRAME_S
 if FRAME_INTERVAL_S > PCM_FRAME_S:
     log.warning(
         "[tts] FRAME_INTERVAL_S=%.3fs is slower than the %.3fs of audio each "
@@ -478,12 +481,15 @@ class _TTSNode(Node):
                 total = 0
                 buf = b''
                 t0 = None  # monotonic start of the pacing schedule
+                publish_started = None
                 frames_sent = 0
                 delivered_bytes = 0
                 prebuf = []   # pre-buffer queue
 
                 def publish(frame: bytes) -> None:
-                    nonlocal delivered_bytes, frames_sent
+                    nonlocal delivered_bytes, frames_sent, publish_started
+                    if publish_started is None:
+                        publish_started = _time.monotonic()
                     msg = AudioChunk()
                     msg.header.stamp = self.get_clock().now().to_msg()
                     msg.format = "audio/pcm-16k"
@@ -568,6 +574,7 @@ class _TTSNode(Node):
                     except BaseException as exc:  # surfaced on the worker thread
                         synth_state["error"] = exc
                     finally:
+                        synth_state["generation_seconds"] = _time.monotonic() - t_start
                         # Unblock the consumer on every exit path.
                         enqueue_frame(_SYNTH_DONE)
 
@@ -632,7 +639,22 @@ class _TTSNode(Node):
                 # Measured at the publisher boundary and excludes the EOF marker.
                 # The monitored harness compares this with ROS-collected PCM.
                 if os.environ.get("TTS_DELIVERY_METRICS") == "1":
-                    log.info("[tts] server delivery: bytes=%d", delivered_bytes)
+                    publisher_seconds = (_time.monotonic() - publish_started) if publish_started else 0.0
+                    generation_seconds = float(synth_state.get("generation_seconds", 0.0))
+                    audio_seconds = delivered_bytes / (SAMPLE_RATE * 2)
+                    request_seconds = _time.monotonic() - t_start
+                    log.info(
+                        "[tts] server delivery: bytes=%d generation_seconds=%.6f "
+                        "publisher_seconds=%.6f request_seconds=%.6f "
+                        "generation_rtf=%.6f publisher_rtf=%.6f request_rtf=%.6f "
+                        "frame_interval_ms=%.1f",
+                        delivered_bytes, generation_seconds, publisher_seconds,
+                        request_seconds,
+                        generation_seconds / audio_seconds if audio_seconds else 0.0,
+                        publisher_seconds / audio_seconds if audio_seconds else 0.0,
+                        request_seconds / audio_seconds if audio_seconds else 0.0,
+                        FRAME_INTERVAL_S * 1000.0,
+                    )
                 # 上报 TTS perf spans（生成 + 播放）
                 try:
                     import json as _json
